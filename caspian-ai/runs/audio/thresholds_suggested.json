@@ -1,0 +1,26 @@
+{
+  "boat_motor": {
+    "threshold": 0.7,
+    "f_beta": 0.954,
+    "precision": 1.0,
+    "recall": 0.806
+  },
+  "gunshot": {
+    "threshold": 0.7,
+    "f_beta": 1.0,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "chainsaw": {
+    "threshold": 0.9,
+    "f_beta": 0.938,
+    "precision": 1.0,
+    "recall": 0.75
+  },
+  "aircraft": {
+    "threshold": 0.9,
+    "f_beta": 0.625,
+    "precision": 1.0,
+    "recall": 0.25
+  }
+}

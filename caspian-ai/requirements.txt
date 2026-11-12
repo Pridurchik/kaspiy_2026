@@ -1,0 +1,12 @@
+# Обучение и сервер
+torch>=2.2
+numpy
+soundfile
+pyyaml
+fastapi
+uvicorn
+python-multipart
+onnx
+onnxruntime
+# Опционально для живого микрофона на буе:
+# sounddevice

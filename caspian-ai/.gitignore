@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+
+# большие данные — скачиваются/генерируются командами из README
+data/raw/
+data/processed/
+data/manifest.csv
+data/alert_clips/
+
+# артефакты обучения — в репо оставляем только готовую модель и метрики
+runs/audio/history.json
+runs/audio/scene_detect.json

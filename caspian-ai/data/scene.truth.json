@@ -1,0 +1,22 @@
+[
+  {
+    "class": "boat_motor",
+    "start": 8.0,
+    "end": 23.0
+  },
+  {
+    "class": "gunshot",
+    "start": 34.0,
+    "end": 35.0
+  },
+  {
+    "class": "gunshot",
+    "start": 37.5,
+    "end": 38.5
+  },
+  {
+    "class": "boat_motor",
+    "start": 46.0,
+    "end": 56.0
+  }
+]

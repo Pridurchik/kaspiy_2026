@@ -1,0 +1,107 @@
+{
+  "split": "test",
+  "report": {
+    "background": {
+      "precision": 0.9626168224299065,
+      "recall": 0.8583333333333333,
+      "f1": 0.9074889867841409,
+      "support": 120
+    },
+    "boat_motor": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 36
+    },
+    "gunshot": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "support": 30
+    },
+    "aircraft": {
+      "precision": 0.43478260869565216,
+      "recall": 0.7142857142857143,
+      "f1": 0.5405405405405405,
+      "support": 14
+    },
+    "chainsaw": {
+      "precision": 0.6875,
+      "recall": 0.9166666666666666,
+      "f1": 0.7857142857142857,
+      "support": 12
+    },
+    "macro_f1": 0.8467487626077934,
+    "accuracy": 0.8962264150943396
+  },
+  "confusion_matrix": [
+    [
+      103,
+      0,
+      0,
+      12,
+      5
+    ],
+    [
+      0,
+      36,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      30,
+      0,
+      0
+    ],
+    [
+      4,
+      0,
+      0,
+      10,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      1,
+      11
+    ]
+  ],
+  "classes": [
+    "background",
+    "boat_motor",
+    "gunshot",
+    "aircraft",
+    "chainsaw"
+  ],
+  "alerts": {
+    "boat_motor": {
+      "threshold": 0.6,
+      "precision": 1.0,
+      "recall": 0.9722222222222222,
+      "false_alarms": 0
+    },
+    "gunshot": {
+      "threshold": 0.5,
+      "precision": 1.0,
+      "recall": 1.0,
+      "false_alarms": 0
+    },
+    "chainsaw": {
+      "threshold": 0.9,
+      "precision": 1.0,
+      "recall": 0.75,
+      "false_alarms": 0
+    },
+    "aircraft": {
+      "threshold": 0.9,
+      "precision": 1.0,
+      "recall": 0.07142857142857142,
+      "false_alarms": 0
+    }
+  }
+}
