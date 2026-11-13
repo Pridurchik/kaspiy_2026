@@ -40,10 +40,10 @@ FIELD = {
 
 SOURCES = [
     {"id": "ais_ship", "class": "boat_motor", "label": "Теплоход «Волжский-7» (AIS)", "mmsi": "273318450",
-     "level": 0.9, "path": [(0, (-760, -150)), (50, (-720, 270))]},
-    {"id": "dark_boat", "class": "boat_motor", "label": "Лодка без AIS", "level": 0.45,
+     "level": 0.9, "f0": 24.0, "path": [(0, (-760, -150)), (50, (-720, 270))]},
+    {"id": "dark_boat", "class": "boat_motor", "label": "Лодка без AIS", "level": 0.45, "f0": 72.0,
      "path": [(60, (60, 80)), (128, (780, 720)), (150, (830, 780))]},
-    {"id": "shot", "class": "gunshot", "label": "Выстрел с лодки", "level": 1.2, "at": 140.0},
+    {"id": "shot", "class": "gunshot", "label": "Выстрел с лодки", "level": 8.0, "at": 140.0},  # выстрел на 50+ дБ громче мотора в воздухе
 ]
 
 
@@ -52,6 +52,29 @@ def _path_xy(path, t):
     xs = np.array([p[1][0] for p in path], float)
     ys = np.array([p[1][1] for p in path], float)
     return np.interp(t, ts, xs), np.interp(t, ts, ys)
+
+
+def real_gunshot(sr: int, manifest: str = "data/manifest.csv"):
+    """Реальная запись выстрела из ТЕСТОВОЙ части датасета (модель её не видела). Выбор не по
+    оценке модели, а по форме сигнала: самый чёткий импульс (макс. отношение пика к RMS)."""
+    from .audio_io import load_audio
+    from .prepare import read_manifest
+
+    if not Path(manifest).exists():
+        return None
+    rows = sorted(r["path"] for r in read_manifest(manifest)
+                  if r["split"] == "test" and r["label"] == "gunshot" and r["source"] != "synthetic")
+    best, best_c = None, 0.0
+    for path in rows:
+        x = load_audio(path, sr)
+        c = float(np.max(np.abs(x)) / (np.sqrt(np.mean(x ** 2)) + 1e-9))
+        if c > best_c:
+            best, best_c = (path, x), c
+    if best is None:
+        return None
+    real_gunshot.path = best[0]
+    x = best[1][: int(1.5 * sr)]
+    return x / (np.max(np.abs(x)) + 1e-9)
 
 
 def _envelope(n, sr, fade=2.0):
@@ -83,7 +106,7 @@ def simulate(out_dir: str | Path, cfg: dict, seed: int = 7, ideal: bool = False)
             ta, tb = src["path"][0][0], src["path"][-1][0]
             sig = np.zeros(n)
             i0, i1 = int(ta * sr), int(tb * sr)
-            sig[i0:i1] = boat_motor(tb - ta, sr, rng)[: i1 - i0] * _envelope(i1 - i0, sr)
+            sig[i0:i1] = boat_motor(tb - ta, sr, rng, src.get("f0"))[: i1 - i0] * _envelope(i1 - i0, sr)
             pos = lambda te, path=src["path"]: _path_xy(path, te)
             tt = np.arange(ta, tb, 1.0)
             tx, ty = _path_xy(src["path"], tt)
@@ -93,11 +116,14 @@ def simulate(out_dir: str | Path, cfg: dict, seed: int = 7, ideal: bool = False)
             dark = next(s for s in SOURCES if s["id"] == "dark_boat")
             sx, sy = _path_xy(dark["path"], src["at"])
             sig = np.zeros(n)
-            g = gunshot(1.0, sr, rng, at=0.0)
+            g = real_gunshot(sr) if src.get("real", True) else None
+            if g is None:
+                g = gunshot(1.0, sr, rng, at=0.0)
+            src["clip"] = getattr(real_gunshot, "path", "синтетика")
             i0 = int(src["at"] * sr)
             sig[i0 : i0 + len(g)] = g
             pos = lambda te, sx=sx, sy=sy: (np.full_like(te, sx), np.full_like(te, sy))
-            truth.append({**{k: src[k] for k in ("id", "class", "label")}, "t": [src["at"]], "x": [round(float(sx), 1)], "y": [round(float(sy), 1)]})
+            truth.append({**{k: src[k] for k in ("id", "class", "label")}, "clip": src["clip"], "t": [src["at"]], "x": [round(float(sx), 1)], "y": [round(float(sy), 1)]})
         sig *= src["level"]
         # дробная задержка точно: сигнал на сетке UP x sr (линейная интерполяция на 16 кГц глушит ВЧ)
         sig_up = resample(sig, sr, sr * UP)

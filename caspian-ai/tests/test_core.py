@@ -134,6 +134,66 @@ def test_satellite_plume_confirmed_by_water():
     assert any(x["factor"] == "confirmed" for x in al[0]["fusion"]["reasons"])
 
 
+def test_migration_homing_mass_and_direction():
+    from caspian_audio import caspian as C
+    from caspian_audio import migration as M
+
+    g = C.build_grid()
+    r = M.forecast(g, date(2026, 5, 20), 3, "spawners")
+    for m in r["maps"]:
+        assert abs(m.sum() - 1) < 1e-6 and (m[~g.sea] == 0).all()  # масса сохраняется, рыба только в море
+    assert r["days"][0]["shares"]["RU"] > 0.4  # к 20 мая основная часть стада у Волги
+    assert r["days"][1]["top_squares"][0]["country"] == "RU"
+    # молодь живёт у устьев, а не в глубоководье
+    j = M.forecast(g, date(2026, 5, 20), 1, "juvenile")["maps"][0]
+    assert j[g.depth < 30].sum() > 0.85
+
+
+def test_poaching_model_learns_signs():
+    from caspian_audio import caspian as C
+    from caspian_audio import poaching as P
+
+    g = C.build_grid()
+    fw = P.seasonal_fish(g)
+    start = date(2025, 1, 1)
+    inc = P.simulate_history(g, fw, start, 240)
+    m = P.fit(g, inc, fw, start, 240, 180)
+    w = dict(zip(m["features"], m["w"]))
+    assert w["coast_km"] < 0 and w["ln_fish"] > 0  # браконьеры у берега и там, где рыба
+    assert m["auc_test"] > 0.8
+
+
+def test_transboundary_policy():
+    from caspian_audio import caspian as C
+    from caspian_audio import migration as M
+    from caspian_audio import transboundary as T
+
+    g = C.build_grid()
+    mig = M.forecast(g, date(2026, 5, 20), 3, "spawners")
+    acoustic = [{"type": "acoustic", "category": "gunshot", "title": "Выстрел", "start_ts": "2026-05-19T21:32:20Z",
+                 "location": {"lat": 45.757, "lon": 48.41}, "fusion": {"priority": "critical"}}]
+    msgs = T.build(date(2026, 5, 20), "RU", g, mig, [], acoustic)
+    by = {m["to"]["country"]: m for m in msgs}
+    assert "RU" not in by and "KZ" in by
+    assert by["KZ"]["evidence"] and "lat" not in by["KZ"]["evidence"][0]  # только квадраты, без координат
+    if "AZ" in by:
+        assert not by["AZ"]["evidence"]  # дельта Волги далеко от вод Азербайджана
+    m = by["KZ"]
+    assert m["status"] == "draft" and T.digest(m) == m["sha256"]
+    m["text"]["ru"] += "!"
+    assert T.digest(m) != m["sha256"]  # подмена текста видна по контрольной сумме
+
+
+def test_vessel_profile_types():
+    from caspian_audio.synth import boat_motor
+    from caspian_audio.vessel import profile
+
+    rng = np.random.default_rng(0)
+    assert "подвесной" in profile(boat_motor(8, 16000, rng, 70), 16000)["type_ru"]
+    assert "стационарн" in profile(boat_motor(8, 16000, rng, 26), 16000)["type_ru"]
+    assert "крупное" in profile(boat_motor(8, 16000, rng, 12), 16000)["type_ru"]
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):

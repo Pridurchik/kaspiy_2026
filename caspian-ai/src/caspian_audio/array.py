@@ -62,9 +62,13 @@ def run_array(model_path: str, array_dir: str | Path, cfg: dict, ais_path: str |
     slack = span / min(lcfg["sound_speed"].values()) + 1.0
     clusters = cluster_events(per_buoy, slack)
 
+    for c in clusters:
+        c["fixes"] = locate_span(signals, bxy, sr, c["start"] - 0.5, c["end"] + 0.5, c["class"], lcfg) if len(signals) >= 3 else []
+    clusters = merge_continuous(clusters, lcfg)
+
     alerts = []
     for c in clusters:
-        fixes = locate_span(signals, bxy, sr, c["start"] - 0.5, c["end"] + 0.5, c["class"], lcfg) if len(signals) >= 3 else []
+        fixes = c["fixes"]
         impulsive = c["class"] in lcfg.get("impulsive_classes", ["gunshot"])
         track = fixes if impulsive else kalman_track(fixes, lcfg["accel_noise"])
         for p in fixes + track:
@@ -119,6 +123,32 @@ def run_array(model_path: str, array_dir: str | Path, cfg: dict, ais_path: str |
         render_map(out / "map.html", meta, alerts, fusion, bxy, truth=json.loads(truth_p.read_text()) if truth_p.exists() else None)
         print(f"[array] -> {out / 'array_alerts.json'}, карта: {out / 'map.html'}")
     return res
+
+
+def merge_continuous(clusters: list[dict], lcfg: dict, max_gap_s: float = 30.0, v_max: float = 20.0) -> list[dict]:
+    """Склеить куски одного источника: детектор мог «моргнуть» посреди хода лодки. Куски одного
+    класса сливаются, если второй начинается не позже 30 с и там, куда лодка могла доплыть."""
+    impulsive = set(lcfg.get("impulsive_classes", ["gunshot"]))
+    bridge = {"unknown_sound"}  # OOD срабатывает, когда уверенность в моторе проседает: это тот же источник
+    out: list[dict] = []
+    for c in sorted(clusters, key=lambda c: c["start"]):
+        if c["class"] in impulsive:
+            out.append(c)
+            continue
+        prev = next((p for p in reversed(out) if p["class"] not in impulsive | bridge
+                     and (p["class"] == c["class"] or c["class"] in bridge)), None)
+        if prev and prev["fixes"] and c["fixes"] and c["start"] - prev["end"] <= max_gap_s:
+            b = min(c["fixes"], key=lambda f: f["t"])
+            a = min(prev["fixes"], key=lambda f: abs(f["t"] - b["t"]))
+            if np.hypot(a["x"] - b["x"], a["y"] - b["y"]) <= v_max * max(abs(b["t"] - a["t"]), 1) + 150:
+                prev["end"] = max(prev["end"], c["end"])
+                prev["fixes"] = prev["fixes"] + c["fixes"]
+                prev["buoys"] |= c["buoys"]
+                if c["confidence"] > prev["confidence"]:
+                    prev["confidence"] = c["confidence"]
+                continue
+        out.append(c)
+    return out
 
 
 def absorb_unknown(alerts: list[dict], dist_m: float = 150.0, dt_s: float = 5.0) -> list[dict]:

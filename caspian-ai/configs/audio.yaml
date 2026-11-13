@@ -49,9 +49,9 @@ inference:
   hop_seconds: 0.5
   thresholds:              # порог вероятности для алерта
     boat_motor: 0.6
-    gunshot: 0.5
+    gunshot: 0.9           # по ложным тревогам в час (stream-eval): 0.5 давал ~100–125/ч, 0.9 — 2–4/ч при recall 54%
     chainsaw: 0.9          # возможная незаконная рубка; порог из `cli tune` (precision=1.0 на вал.)
-    aircraft: 0.9          # информационный алерт, не тревога; порог из `cli tune`
+    aircraft: 0.5          # информационный алерт, не тревога; порог из `cli tune` (precision=1.0 на вал.)
   min_consecutive:         # сколько окон подряд нужно для алерта
     boat_motor: 3          # мотор — продолжительный звук, отсекаем случайные срабатывания
     gunshot: 1             # выстрел — импульс, достаточно одного окна
@@ -79,7 +79,7 @@ inference:
   # edge.py применяет эти оверрайды поверх thresholds.
   edge_thresholds:
     boat_motor: 0.40
-    gunshot: 0.35
+    gunshot: 0.8           # буй ловит больше, сервер перепроверяет клип порогом 0.9
     chainsaw: 0.50
     aircraft: 0.80
 

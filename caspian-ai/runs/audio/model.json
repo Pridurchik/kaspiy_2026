@@ -6,7 +6,8 @@
     "boat_motor",
     "gunshot",
     "aircraft",
-    "chainsaw"
+    "chainsaw",
+    "fireworks"
   ],
   "background_class": "background",
   "features": {
@@ -14,7 +15,8 @@
     "hop_length": 160,
     "n_mels": 64,
     "fmin": 20,
-    "fmax": 8000
+    "fmax": 8000,
+    "normalize": "clip_mean"
   },
   "model": {
     "channels": [
@@ -32,14 +34,17 @@
     "manifest": "data/manifest.csv",
     "val_fraction": 0.15,
     "test_fraction": 0.15,
+    "train_only_sources": [
+      "synthetic"
+    ],
     "mix_prob": 0.7,
     "snr_db": [
       -10,
       20
     ],
     "gain_db": [
-      -6,
-      6
+      -30,
+      10
     ]
   },
   "train": {
@@ -57,9 +62,9 @@
     "hop_seconds": 0.5,
     "thresholds": {
       "boat_motor": 0.6,
-      "gunshot": 0.5,
+      "gunshot": 0.9,
       "chainsaw": 0.9,
-      "aircraft": 0.9
+      "aircraft": 0.5
     },
     "min_consecutive": {
       "boat_motor": 3,
@@ -87,9 +92,91 @@
     },
     "edge_thresholds": {
       "boat_motor": 0.4,
-      "gunshot": 0.35,
+      "gunshot": 0.8,
       "chainsaw": 0.5,
       "aircraft": 0.8
+    }
+  },
+  "localization": {
+    "sound_speed": {
+      "default": 1480.0,
+      "gunshot": 343.0,
+      "chainsaw": 343.0,
+      "aircraft": 343.0
+    },
+    "band_hz": {
+      "default": [
+        400,
+        6000
+      ],
+      "gunshot": [
+        200,
+        5000
+      ]
+    },
+    "impulsive_classes": [
+      "gunshot"
+    ],
+    "window_seconds": 0.5,
+    "impulse_window_seconds": 0.5,
+    "hop_seconds": 1.0,
+    "max_source_speed_ms": 20,
+    "alpha_step_ms": 0.3,
+    "tdoa_sigma_ms": 1.0,
+    "sound_speed_rel_error": 0.01,
+    "min_psr": 6.0,
+    "max_tdoa_rms_m": 15.0,
+    "level_sigma": 0.7,
+    "search_radius_m": 2500,
+    "grid_step_m": 25,
+    "accel_noise": 0.5
+  },
+  "fusion": {
+    "origin": [
+      45.75,
+      48.4
+    ],
+    "zones": "configs/zones_demo.geojson",
+    "utc_offset_hours": 4,
+    "night_hours": [
+      21,
+      5
+    ],
+    "hearing_range_m": 2000,
+    "ais_match_radius_m": 300,
+    "ais_max_gap_s": 180,
+    "vessel_classes": [
+      "boat_motor"
+    ],
+    "suspect_classes": [
+      "gunshot"
+    ],
+    "own_fleet_mmsi": [
+      "273000001"
+    ],
+    "eta_horizon_min": 15,
+    "risk": {
+      "base": {
+        "gunshot": 40,
+        "chainsaw": 35,
+        "boat_motor": 20,
+        "unknown_sound": 10,
+        "aircraft": 0
+      },
+      "dark_vessel": 25,
+      "ais_identified": -15,
+      "ais_nearby": 0,
+      "own_fleet": -100,
+      "fairway": -10,
+      "zone_default": 20,
+      "approaching": 10,
+      "night": 10
+    },
+    "priority": {
+      "critical": 75,
+      "high": 55,
+      "medium": 35,
+      "low": 0
     }
   }
 }

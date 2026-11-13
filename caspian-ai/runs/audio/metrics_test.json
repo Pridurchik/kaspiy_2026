@@ -2,73 +2,92 @@
   "split": "test",
   "report": {
     "background": {
-      "precision": 0.9626168224299065,
-      "recall": 0.8583333333333333,
-      "f1": 0.9074889867841409,
-      "support": 120
+      "precision": 0.8403361344537815,
+      "recall": 0.5714285714285714,
+      "f1": 0.6802721088435375,
+      "support": 175
     },
     "boat_motor": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "support": 36
+      "precision": 0.6774193548387096,
+      "recall": 0.6494845360824743,
+      "f1": 0.6631578947368422,
+      "support": 97
     },
     "gunshot": {
-      "precision": 1.0,
-      "recall": 1.0,
-      "f1": 1.0,
-      "support": 30
+      "precision": 0.7402597402597403,
+      "recall": 0.9661016949152542,
+      "f1": 0.8382352941176471,
+      "support": 59
     },
     "aircraft": {
-      "precision": 0.43478260869565216,
-      "recall": 0.7142857142857143,
-      "f1": 0.5405405405405405,
+      "precision": 0.16666666666666666,
+      "recall": 0.2857142857142857,
+      "f1": 0.2105263157894737,
       "support": 14
     },
     "chainsaw": {
-      "precision": 0.6875,
-      "recall": 0.9166666666666666,
-      "f1": 0.7857142857142857,
-      "support": 12
+      "precision": 0.37142857142857144,
+      "recall": 1.0,
+      "f1": 0.5416666666666666,
+      "support": 13
     },
-    "macro_f1": 0.8467487626077934,
-    "accuracy": 0.8962264150943396
+    "fireworks": {
+      "precision": 0.3,
+      "recall": 0.6,
+      "f1": 0.4,
+      "support": 10
+    },
+    "macro_f1": 0.5556430466923612,
+    "accuracy": 0.6603260869565217
   },
   "confusion_matrix": [
     [
-      103,
-      0,
-      0,
-      12,
-      5
+      100,
+      24,
+      10,
+      14,
+      13,
+      14
     ],
     [
+      16,
+      63,
+      6,
+      5,
+      7,
+      0
+    ],
+    [
+      1,
       0,
-      36,
+      57,
+      1,
       0,
+      0
+    ],
+    [
+      2,
+      6,
       0,
+      4,
+      2,
       0
     ],
     [
       0,
       0,
-      30,
       0,
+      0,
+      13,
       0
     ],
     [
+      0,
+      0,
       4,
       0,
       0,
-      10,
-      0
-    ],
-    [
-      0,
-      0,
-      0,
-      1,
-      11
+      6
     ]
   ],
   "classes": [
@@ -76,32 +95,37 @@
     "boat_motor",
     "gunshot",
     "aircraft",
-    "chainsaw"
+    "chainsaw",
+    "fireworks"
   ],
   "alerts": {
     "boat_motor": {
       "threshold": 0.6,
-      "precision": 1.0,
-      "recall": 0.9722222222222222,
-      "false_alarms": 0
+      "precision": 0.8157894736842105,
+      "recall": 0.31958762886597936,
+      "false_alarms": 7,
+      "n_positive": 97
     },
     "gunshot": {
-      "threshold": 0.5,
+      "threshold": 0.9,
       "precision": 1.0,
-      "recall": 1.0,
-      "false_alarms": 0
+      "recall": 0.5084745762711864,
+      "false_alarms": 0,
+      "n_positive": 59
     },
     "chainsaw": {
       "threshold": 0.9,
-      "precision": 1.0,
-      "recall": 0.75,
-      "false_alarms": 0
+      "precision": 0.9166666666666666,
+      "recall": 0.8461538461538461,
+      "false_alarms": 1,
+      "n_positive": 13
     },
     "aircraft": {
-      "threshold": 0.9,
-      "precision": 1.0,
-      "recall": 0.07142857142857142,
-      "false_alarms": 0
+      "threshold": 0.5,
+      "precision": 0.6,
+      "recall": 0.21428571428571427,
+      "false_alarms": 2,
+      "n_positive": 14
     }
   }
 }

@@ -94,3 +94,17 @@ audio { width: 100%; margin-top: 6px; }
   .top { padding: 8px 16px; }
   .map-legend { display: none; }
 }
+
+.seg { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.seg button { border: 1px solid var(--line); background: var(--surface); color: var(--fg); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.seg button.on { background: var(--accent); color: var(--accent-fg); border-color: transparent; }
+.bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; margin: 6px 0 2px; background: var(--line); }
+.bar span { display: block; height: 100%; }
+.legend-row { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--muted); }
+.slider { width: 100%; accent-color: var(--accent); }
+.msg { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; background: var(--surface-2); }
+.msg .text { font-size: 13px; margin: 6px 0; }
+.status { font-size: 11px; padding: 1px 7px; border-radius: 4px; border: 1px solid var(--line); }
+.status.approved { background: var(--green); color: #fff; border-color: transparent; }
+.status.rejected { background: var(--surface); color: var(--muted); text-decoration: line-through; }
+.cbar { height: 8px; border-radius: 4px; background: linear-gradient(90deg, #0d0887, #8b0aa5, #db5c68, #febc2b, #f0f921); margin: 4px 0 2px; }

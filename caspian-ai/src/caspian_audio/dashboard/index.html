@@ -14,6 +14,7 @@
   <div class="spacer"></div>
   <div class="clock" id="clock" title="Время сценария"></div>
   <div class="live" id="live"><i></i><span>нет связи</span></div>
+  <button class="btn" id="live-buoys" title="Три буя в реальном времени проигрывают записанную ночь и шлют тревоги на сервер">🎧 Буи в эфире</button>
   <button class="btn primary" id="replay" title="Скрыть алерты и выдать их заново, как они приходили ночью">▶ Проиграть ночь</button>
 </header>
 <main class="layout">
@@ -26,11 +27,13 @@
       <button data-tab="alerts" class="on">Тревоги <span class="count" id="alertCount">0</span></button>
       <button data-tab="eco">Экостатус</button>
       <button data-tab="forecast">Прогноз</button>
+      <button data-tab="caspian">Каспий</button>
       <button data-tab="buoys">Буи и данные</button>
     </nav>
     <div class="panel" id="panel-alerts"><div id="alertList"></div><div id="alertDetail" hidden></div></div>
     <div class="panel" id="panel-eco" hidden></div>
     <div class="panel" id="panel-forecast" hidden></div>
+    <div class="panel" id="panel-caspian" hidden></div>
     <div class="panel" id="panel-buoys" hidden></div>
   </aside>
 </main>

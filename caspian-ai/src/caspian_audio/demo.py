@@ -61,6 +61,9 @@ def build(cfg: dict, model_path: str, store: Store, demo_dir: str | Path = DEMO_
         seg = x[int(t0 * sr): int((t0 + 8) * sr)]
         save_audio(clips / f"{a['id']}.wav", seg, sr)
         a["evidence_audio"] = str(clips / f"{a['id']}.wav")
+        if a["category"] == "boat_motor":
+            from .vessel import profile
+            a["vessel"] = profile(seg, sr)  # тип двигателя и направление по гидроакустике
         store.upsert_alert(a)
 
     # 3) датчики воды
@@ -114,6 +117,7 @@ def build(cfg: dict, model_path: str, store: Store, demo_dir: str | Path = DEMO_
     store.put("forecast", {**fc, "patrol_plan": plan, "windows": windows})
     store.put("ais_rows", load_ais_csv(arr / "ais.csv"))
     store.put("water_dir", str(wd))
+    build_caspian(store)
     print(f"[demo] алертов: {len(store.alerts(limit=1000))}; экостатус: " + ", ".join(f"{e['name']}={e['level']}" for e in eco))
     return {"alerts": len(store.alerts(limit=1000))}
 
@@ -147,3 +151,74 @@ def eco_status(zones, frame, wstatus, stations, alerts, windows, today) -> list[
                 level = "yellow"
         out.append({"name": z["name"], "kind": z.get("kind"), "level": level, "reasons": reasons or ["Отклонений нет"]})
     return out
+
+
+def build_caspian(store: Store, today: date = SCENARIO_TODAY, out_dir: str | Path = DEMO_DIR / "caspian", horizon: int = 7) -> dict:
+    """Масштаб всего Каспия: миграция осетровых, браконьерские горячие точки, трансграничные уведомления."""
+    from . import caspian as C
+    from . import migration as M
+    from . import poaching as P
+    from . import transboundary as T
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    g = C.build_grid()
+    sensors = C.simulate_sensors(g, today)
+    env = C.environment(g, today, sensors)
+    (out / "temp.png").write_bytes(C.to_png(g, env["temp"] - np.nanmin(env["temp"][g.sea]), alpha_min=0.0))
+    (out / "sal.png").write_bytes(C.to_png(g, env["sal"], vmax=14, alpha_min=0.0))
+
+    stages = {}
+    for stage in ("spawners", "juvenile"):
+        r = M.forecast(g, today, horizon, stage, sensors)
+        vmax = float(np.percentile(np.concatenate([m[g.sea] for m in r["maps"]]), 99.5))
+        for k, m in enumerate(r["maps"]):
+            (out / f"{stage}_d{k}.png").write_bytes(C.to_png(g, m, vmax=vmax))
+        stages[stage] = r
+
+    # обучение пригодности на наблюдениях (демо: синтетические съёмки молоди прошлым летом)
+    days = [date(2025, 7, 1) + timedelta(days=7 * k) for k in range(8)]
+    obs = M.simulate_observations(g, days, "juvenile")
+    train = [o for o in obs if o["date"] < "2025-08-10"]
+    test = [o for o in obs if o["date"] >= "2025-08-10"]
+    hm = M.fit_observations(train)
+    pt = M.predict_observations(hm, {k: np.array([o[k] for o in test]) for k in ("temp", "sal", "depth")})
+    habitat_fit = {"n_obs": len(obs), "test_auc": round(M.auc(pt, np.array([o["present"] for o in test])), 3),
+                   "learned_opt_sal": hm["opt_sal"], "learned_opt_temp": hm["opt_temp"], "synthetic": True}
+
+    # браконьерство: история (синтетика) -> модель -> горячие точки на ближайшие ночи
+    fw = P.seasonal_fish(g)
+    start = today - timedelta(days=730)
+    incidents = P.simulate_history(g, fw, start, 730)
+    pm = P.fit(g, incidents, fw, start, 730, 540)
+    st = P.Static(g)
+    risk_days = []
+    for k in range(1, min(horizon, 3) + 1):
+        d = today + timedelta(days=k)
+        h = P.history_density(st, incidents, d)
+        fish = stages["spawners"]["maps"][k]
+        r = P.predict(st, pm, fish, h, d)
+        (out / f"risk_d{k}.png").write_bytes(C.to_png(g, r, vmax=1.0, alpha_min=0.25))
+        risk_days.append({"date": d.isoformat(), "moon": round(P.moon_illumination(d), 2), "wind": round(P.wind(d), 1),
+                          "hotspots": P.hotspots(g, st, pm, r, fish, h, d, 8)})
+
+    acoustic = [a for a in store.alerts(limit=1000) if a.get("type") == "acoustic"]
+    msgs = T.build(today, "RU", g, stages["spawners"], risk_days[0]["hotspots"], acoustic)
+
+    meta = {
+        "today": today.isoformat(), "bounds": g.bounds, "res": g.res, "horizon": horizon,
+        "countries": C.COUNTRIES, "rivers": {k: [v[1], v[0]] for k, v in C.RIVERS.items()},
+        "sensors": sensors, "env_layers": {"temp": "/api/caspian/layer/temp.png", "sal": "/api/caspian/layer/sal.png"},
+        "stages": {s: {"name": r["name"], "source": r["source"], "shift_km_day": r.get("shift_km_day"),
+                       "shift_course_deg": r.get("shift_course_deg"), "days": r["days"]} for s, r in stages.items()},
+        "habitat_fit": habitat_fit,
+        "poaching": {"model": {k: pm[k] for k in ("auc_test", "hit_rate_top5", "n_incidents_train", "n_incidents_test")},
+                     "explain": P.explain_model(pm), "days": risk_days, "synthetic_history": True,
+                     "incidents_sample": [i for i in incidents if i["date"] >= (today - timedelta(days=365)).isoformat()][::3]},
+        "note": "демо: среда, датчики, наблюдения и история инцидентов синтетические; контур моря схематичный",
+    }
+    store.put("caspian", meta)
+    store.put("transboundary", msgs)
+    print(f"[caspian] миграция: производители {stages['spawners']['days'][0]['shares']}; "
+          f"браконьерство AUC {pm['auc_test']}, топ-5% площади ловит {pm['hit_rate_top5']:.0%} инцидентов; уведомлений: {len(msgs)}")
+    return meta

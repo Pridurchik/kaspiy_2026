@@ -38,6 +38,11 @@ ESC50_MAP = {
     # трудные негативы
     "door_wood_knock": "background", "train": "background",
 }
+# Трудные негативы: можно отдать часть «незнакомых» категорий ESC-50 в фон при обучении, оставив
+# остальные для честной оценки. Проверено (13 бытовых категорий: хлопки, шаги, кашель, клавиатура, ...):
+# ложных «выстрелов» на отложенных категориях стало БОЛЬШЕ (247/ч против 104/ч при пороге 0.5),
+# поэтому выключено. Нужны негативы из реальной среды (свои записи с буёв, «ложные тревоги» инспекторов).
+ESC50_HARD_NEGATIVES: set[str] = set()
 # Категории ESC-50, которые есть и в UrbanSound8K (dog_bark, siren, car_horn): если обучались
 # на US8K, они уже не «незнакомые», поэтому из оценки OOD/ложных тревог их исключаем всегда.
 ESC50_US8K_OVERLAP = {"dog", "siren", "car_horn"}
@@ -48,7 +53,7 @@ def esc50_unknown_categories(esc_root) -> dict[str, list[Path]]:
     by_cat: dict[str, list[Path]] = {}
     with open(Path(esc_root) / "meta" / "esc50.csv", encoding="utf-8") as f:
         for r in csv.DictReader(f):
-            if r["category"] not in ESC50_MAP and r["category"] not in ESC50_US8K_OVERLAP:
+            if r["category"] not in ESC50_MAP and r["category"] not in ESC50_US8K_OVERLAP | ESC50_HARD_NEGATIVES:
                 by_cat.setdefault(r["category"], []).append(Path(esc_root) / "audio" / r["filename"])
     return by_cat
 US8K_MAP = {
@@ -99,7 +104,7 @@ def collect_esc50(root: Path):
     items = []
     with open(root / "meta" / "esc50.csv", encoding="utf-8") as f:
         for r in csv.DictReader(f):
-            label = ESC50_MAP.get(r["category"])
+            label = ESC50_MAP.get(r["category"]) or ("background" if r["category"] in ESC50_HARD_NEGATIVES else None)
             if label:
                 items.append((root / "audio" / r["filename"], label, "esc50", f"esc50:{r['src_file']}"))
     return items

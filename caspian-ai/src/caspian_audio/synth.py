@@ -67,11 +67,11 @@ def background(seconds, sr, rng):
     return (x / (np.max(np.abs(x)) + 1e-9) * rng.uniform(0.2, 0.7)).astype(np.float32)
 
 
-def boat_motor(seconds, sr, rng):
+def boat_motor(seconds, sr, rng, f0=None):
     """Подвесной мотор: гармоники частоты вспышек (20–90 Гц) + кавитация винта."""
     n = int(seconds * sr)
     t = np.arange(n) / sr
-    f0 = rng.uniform(20, 90)
+    f0 = f0 or rng.uniform(20, 90)
     drift = 1 + rng.uniform(0.02, 0.1) * np.sin(2 * np.pi * rng.uniform(0.05, 0.5) * t + rng.uniform(0, 6.28))
     phase = 2 * np.pi * np.cumsum(f0 * drift) / sr
     x = np.zeros(n)

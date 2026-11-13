@@ -160,6 +160,7 @@ async function openAlert(id) {
       <span>Источник</span><span>${SOURCE[a.type] || ""} ${esc(a.sensor_id || "")}${a.heard_by ? " · слышали: " + a.heard_by.join(", ") : ""}</span>
       <span>Место</span><span>${loc.lat ? `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}` : "—"}${loc.radius_m ? ` ± ${Math.round(loc.radius_m)} м` : ""} ${loc.source === "tdoa" ? "(пеленг TDOA)" : loc.source === "sensor" ? "(по датчику)" : ""}</span>
       ${mot ? `<span>Движение</span><span>${mot.speed_kn} уз, курс ${mot.course_deg}°</span>` : ""}
+      ${a.vessel ? `<span>Судно (гидроакустика)</span><span>${esc(a.vessel.type_ru)} · f₀ ${a.vessel.f0_hz} Гц · ${esc(a.vessel.movement_ru)}<br><span class="note">${esc(a.vessel.method)}</span></span>` : ""}
       ${f.approach ? `<span>Подход к зоне</span><span>${esc(f.approach.zone)}: ${f.approach.distance_m} м, ~${f.approach.eta_min} мин</span>` : ""}
       ${a.area_ha ? `<span>Площадь</span><span>${a.area_ha} га</span>` : ""}
       ${a.confidence != null ? `<span>Уверенность</span><span>${Math.round(a.confidence * 100)}%</span>` : ""}${sc}
@@ -308,11 +309,137 @@ function renderBuoys() {
       <div class="note">Клипы подтверждённых и ложных тревог сохраняются в data/feedback/ и попадают в следующее дообучение модели.</div></div>`;
 }
 
+// ------------------------------------------------------------------ Каспий: миграция, браконьерство, трансграничный обмен
+const CC = { RU: "#2e90fa", KZ: "#12b76a", TM: "#f79009", IR: "#d92d20", AZ: "#7a5af8" };
+const LAYERS = { spawners: "Производители", juvenile: "Молодь", risk: "Риск браконьерства", temp: "Температура", sal: "Солёность" };
+const cas = { meta: null, msgs: [], layer: "spawners", day: 1, lang: "ru", group: null, overlay: null, saved: null, showInc: false };
+
+async function enterCaspian() {
+  if (!cas.meta) {
+    try { cas.meta = await api("/api/caspian"); } catch (e) { $("#panel-caspian").innerHTML = '<div class="empty">Нет данных Каспия: make demo</div>'; return; }
+  }
+  cas.msgs = await api("/api/transboundary").catch(() => []);
+  cas.saved = { center: map.getCenter(), zoom: map.getZoom() };
+  for (const k of ["zones", "sat", "stations", "buoys", "alerts"]) map.removeLayer(state.layers[k]);
+  cas.group = cas.group || L.layerGroup();
+  cas.group.addTo(map);
+  map.fitBounds(cas.meta.bounds, { padding: [10, 10] });
+  renderCaspian();
+}
+
+function leaveCaspian() {
+  if (cas.group) map.removeLayer(cas.group);
+  for (const k of ["zones", "sat", "stations", "buoys", "alerts"]) state.layers[k].addTo(map);
+  if (cas.saved) map.setView(cas.saved.center, cas.saved.zoom);
+}
+
+function layerUrl() {
+  if (cas.layer === "risk") return `/api/caspian/layer/risk_d${Math.min(Math.max(cas.day, 1), 3)}.png`;
+  if (cas.layer === "temp" || cas.layer === "sal") return `/api/caspian/layer/${cas.layer}.png`;
+  return `/api/caspian/layer/${cas.layer}_d${cas.day}.png`;
+}
+
+function drawCaspianMap() {
+  const m = cas.meta, G = cas.group;
+  G.clearLayers();
+  L.imageOverlay(layerUrl(), m.bounds, { opacity: 0.85 }).addTo(G);
+  for (const [name, ll] of Object.entries(m.rivers))
+    L.circleMarker(ll, { radius: 4, color: "#0e7490", weight: 2, fillOpacity: 0 }).bindTooltip(`устье: ${esc(name)}`).addTo(G);
+  for (const s of m.sensors)
+    L.circleMarker([s.lat, s.lon], { radius: 3, color: "#fff", weight: 1, fillColor: "#475467", fillOpacity: 1 })
+      .bindTooltip(`датчик ${s.id} (${s.country}): ${s.temp} °C, ${s.sal}‰`).addTo(G);
+  if (cas.layer === "risk") {
+    const rd = m.poaching.days[Math.min(Math.max(cas.day, 1), 3) - 1];
+    for (const h of rd.hotspots.slice(0, 6)) {
+      const b = h.bounds;
+      L.rectangle([[b[0], b[1]], [b[2], b[3]]], { color: "#d92d20", weight: 2, fill: false })
+        .bindTooltip(`<b>${h.square}</b> (${h.country}) риск ${Math.round(h.risk * 100)}%<br>${esc(h.why.join("; "))}`).addTo(G);
+    }
+  } else if (cas.layer in m.stages) {
+    const d = m.stages[cas.layer].days[cas.day];
+    for (const sq of d.top_squares.slice(0, 3)) {
+      const b = sq.bounds;
+      L.rectangle([[b[0], b[1]], [b[2], b[3]]], { color: "#fff", weight: 1.5, dashArray: "4 3", fill: false })
+        .bindTooltip(`${sq.square} (${sq.country}): ${Math.round(sq.p * 100)}% рыбы`).addTo(G);
+    }
+    const track = m.stages[cas.layer].days.map((x) => x.center);
+    L.polyline(track, { color: "#fff", weight: 2 }).addTo(G);
+    L.circleMarker(d.center, { radius: 5, color: "#fff", fillColor: "#101828", fillOpacity: 1, weight: 2 }).bindTooltip("центр масс стада").addTo(G);
+  }
+  if (cas.showInc)
+    for (const i of m.poaching.incidents_sample)
+      L.circleMarker([i.lat, i.lon], { radius: 2, color: "#f04438", weight: 0, fillOpacity: 0.6 }).bindTooltip(`${i.date}: ${esc(i.type)}`).addTo(G);
+}
+
+function sharesBar(sh) {
+  return `<div class="bar">${Object.entries(sh).filter(([, v]) => v > 0.005).map(([c, v]) => `<span style="width:${v * 100}%;background:${CC[c]}" title="${c} ${Math.round(v * 100)}%"></span>`).join("")}</div>
+    <div class="legend-row">${Object.entries(sh).filter(([, v]) => v > 0.005).map(([c, v]) => `<span><i class="dot" style="background:${CC[c]}"></i> ${cas.meta.countries[c].ru} ${Math.round(v * 100)}%</span>`).join("")}</div>`;
+}
+
+function renderCaspian() {
+  const m = cas.meta;
+  const isStage = cas.layer in m.stages;
+  const maxDay = cas.layer === "risk" ? 3 : isStage ? m.horizon : 0;
+  if (cas.layer === "risk" && cas.day < 1) cas.day = 1;
+  if (cas.day > maxDay) cas.day = maxDay;
+  const dayDate = new Date(m.today + "T12:00:00");
+  dayDate.setDate(dayDate.getDate() + cas.day);
+  const dd = dayDate.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  let body = "";
+  if (isStage) {
+    const st = m.stages[cas.layer], d = st.days[cas.day];
+    body = `<div class="box"><b>${esc(st.name)}</b> · ${dd}${cas.day ? ` (+${cas.day} сут)` : " (сегодня)"}
+      <div class="meta">Центр масс стада смещается на ${st.shift_km_day} км/сут, курс ${st.shift_course_deg}°</div>
+      <h3>Где стадо (доли по водам государств)</h3>${sharesBar(d.shares)}
+      <h3>Квадраты с наибольшей плотностью</h3>${d.top_squares.map((q) => `<div class="row"><b>${q.square}</b><span class="meta">${m.countries[q.country].ru}</span><span style="margin-left:auto">${Math.round(q.p * 100)}%</span></div>`).join("")}
+      <div class="note" style="margin-top:6px">${esc(st.source)}</div></div>
+      <div class="box"><b>Обучение на наблюдениях</b><div class="meta">Логистическая регрессия по T, S, глубине на учётных съёмках: AUC на отложенных неделях ${m.habitat_fit.test_auc}; выученный оптимум солёности ${m.habitat_fit.learned_opt_sal ?? "—"}‰${m.habitat_fit.learned_opt_temp ? `, температуры ${m.habitat_fit.learned_opt_temp} °C` : ""}. ${m.habitat_fit.synthetic ? "Демо: съёмки синтетические — подставьте реальные траловые данные." : ""}</div></div>`;
+  } else if (cas.layer === "risk") {
+    const rd = m.poaching.days[cas.day - 1], pm = m.poaching.model;
+    body = `<div class="box"><b>Горячие точки браконьерства</b> · ночь на ${dd}<div class="meta">Луна ${Math.round(rd.moon * 100)}% · ветер ${rd.wind} м/с</div>
+      ${rd.hotspots.slice(0, 6).map((h) => `<div class="row" style="margin-top:4px"><b>${h.square}</b><span class="meta">${m.countries[h.country].ru}</span><span class="risk" style="margin-left:auto">${Math.round(h.risk * 100)}%</span></div><div class="meta">${esc(h.why.join("; "))}</div>`).join("")}</div>
+      <div class="box"><b>Модель учится на истории</b><div class="meta">Задержания и инциденты прошлых лет (напр. итоги операции «Бекіре») + прогноз миграции. Проверка по времени: AUC ${pm.auc_test}; 5% площади моря с наибольшим риском покрывают ${Math.round(pm.hit_rate_top5 * 100)}% будущих инцидентов.
+      ${m.poaching.synthetic_history ? "<br><b>Демо: история синтетическая</b> — метрики показывают работу конвейера, не реальную точность." : ""}</div>
+      <ul class="reasons">${m.poaching.explain.map((x) => `<li><span>${esc(x)}</span></li>`).join("")}</ul>
+      <label class="meta"><input type="checkbox" id="showInc" ${cas.showInc ? "checked" : ""}> показать инциденты за год</label></div>`;
+  } else {
+    body = `<div class="box"><b>${LAYERS[cas.layer]}</b> по данным ${m.sensors.length} датчиков (точки) поверх климатической основы<div class="cbar"></div>
+      <div class="legend-row"><span>${cas.layer === "sal" ? "0‰" : "холоднее"}</span><span style="margin-left:auto">${cas.layer === "sal" ? "14‰" : "теплее"}</span></div>
+      <div class="note">Датчики снижают ошибку восстановления поля: невязки датчиков интерполируются (IDW), вдали от них — климат.</div></div>`;
+  }
+  const msgs = cas.msgs.map((x) => `<div class="msg"><div class="row"><span class="prio ${x.priority === "high" ? "high" : "medium"}">${x.priority === "high" ? "ВЫСОК" : "СРЕДН"}</span>
+      <b>→ ${m.countries[x.to.country].ru}</b><span class="status ${x.status}" style="margin-left:auto">${{ draft: "черновик", approved: "одобрено", rejected: "отклонено" }[x.status]}</span></div>
+      <div class="text">${esc(x.text[cas.lang])}</div>
+      <div class="meta">${esc(x.framework[cas.lang])} · ${esc(x.data_policy[cas.lang])} · SHA-256 ${x.sha256.slice(0, 12)}…</div>
+      <div class="actions"><button class="btn ok" data-msg="${x.id}" data-st="approved">Одобрить</button><button class="btn bad" data-msg="${x.id}" data-st="rejected">Отклонить</button>
+      <a class="btn" href="/api/transboundary/${x.id}.json">JSON</a></div></div>`).join("") || '<div class="empty">Уведомлений нет</div>';
+  $("#panel-caspian").innerHTML = `<div class="seg" id="casLayer">${Object.entries(LAYERS).map(([k, v]) => `<button data-l="${k}" class="${k === cas.layer ? "on" : ""}">${v}</button>`).join("")}</div>
+    ${maxDay ? `<input type="range" class="slider" id="casDay" min="${cas.layer === "risk" ? 1 : 0}" max="${maxDay}" value="${cas.day}"><div class="legend-row"><span>${cas.layer === "risk" ? "завтра" : "сегодня"}</span><span style="margin-left:auto">+${maxDay} сут</span></div>` : ""}
+    ${body}
+    <h3>Трансграничный протокол</h3>
+    <div class="seg" id="casLang"><button data-lang="ru" class="${cas.lang === "ru" ? "on" : ""}">RU</button><button data-lang="en" class="${cas.lang === "en" ? "on" : ""}">EN</button></div>
+    ${msgs}
+    <div class="note">Черновики собираются автоматически из акустических тревог, прогноза миграции и браконьерства. Наружу ничего не уходит без решения диспетчера; канал передачи согласуют стороны. ${esc(m.note)}</div>`;
+  $("#casLayer").querySelectorAll("button").forEach((b) => (b.onclick = () => { cas.layer = b.dataset.l; renderCaspian(); }));
+  $("#casDay")?.addEventListener("input", (e) => { cas.day = +e.target.value; renderCaspian(); });
+  $("#casLang").querySelectorAll("button").forEach((b) => (b.onclick = () => { cas.lang = b.dataset.lang; renderCaspian(); }));
+  $("#showInc")?.addEventListener("change", (e) => { cas.showInc = e.target.checked; drawCaspianMap(); });
+  $("#panel-caspian").querySelectorAll("[data-msg]").forEach((b) => (b.onclick = async () => {
+    await api(`/api/transboundary/${b.dataset.msg}/status`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: b.dataset.st }) });
+    cas.msgs = await api("/api/transboundary");
+    renderCaspian();
+  }));
+  drawCaspianMap();
+}
+
 // ------------------------------------------------------------------ общее
 function showTab(t) {
+  const was = document.querySelector("#tabs button.on")?.dataset.tab;
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
   document.querySelectorAll(".panel").forEach((p) => (p.hidden = p.id !== `panel-${t}`));
   if (t === "forecast") renderForecast();
+  if (t === "caspian") enterCaspian();
+  else if (was === "caspian") leaveCaspian();
 }
 
 function renderHeader() {
@@ -368,6 +495,8 @@ function connect() {
       refreshOverview();
     } else if (e.type === "water") {
       refreshOverview();
+    } else if (e.type === "transboundary") {
+      if (cas.meta) renderCaspian();
     } else if (e.type === "replay_done") {
       $("#replay").disabled = false;
       toast("Ночь проиграна: все тревоги в ленте", "info");
@@ -377,6 +506,14 @@ function connect() {
 
 async function main() {
   document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+  $("#live-buoys").onclick = async () => {
+    $("#live-buoys").disabled = true;
+    showTab("alerts");
+    closeAlert();
+    await api("/api/demo/live", { method: "POST" });
+    toast("Буи в эфире: 3 гидрофона проигрывают ночь в реальном времени (~2.5 мин). Тревоги придут по мере звука.", "info");
+    setTimeout(() => ($("#live-buoys").disabled = false), 150000);
+  };
   $("#replay").onclick = async () => {
     $("#replay").disabled = true;
     showTab("alerts");

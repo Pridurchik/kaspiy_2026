@@ -187,6 +187,9 @@ def ingest_alert(a: dict = Body(...)):
         # каскад: сервер перепроверяет клип строгими порогами
         ev = [e for e in _strict.run(clip)["events"] if e["class"] == a["category"]]
         a["server_check"] = {"confirmed": bool(ev), "confidence": max((e["confidence"] for e in ev), default=0.0)}
+        if a["category"] == "boat_motor":
+            from .vessel import profile
+            a["vessel"] = profile(clip, sr)
     fu = _fusion()
     fixes = None
     if clip is not None and a.get("clip_start_ts") and a.get("location"):
@@ -345,3 +348,75 @@ async def demo_replay(speed: float = 1.0):
 
     asyncio.create_task(run())
     return {"queued": len(items), "seconds": round(len(items) * 3.5 / speed)}
+
+
+# ---------------------------------------------------------------- Каспий: миграция, браконьерство, трансграничный обмен
+
+@app.get("/api/caspian")
+def caspian_meta():
+    m = store.get("caspian")
+    if not m:
+        raise HTTPException(404, "нет данных: python -m caspian_audio.cli demo")
+    return m
+
+
+@app.get("/api/caspian/layer/{name}")
+def caspian_layer(name: str):
+    p = Path("data/demo/caspian") / name
+    if not name.endswith(".png") or "/" in name or not p.exists():
+        raise HTTPException(404)
+    return FileResponse(p, media_type="image/png")
+
+
+@app.get("/api/transboundary")
+def transboundary_list():
+    return store.get("transboundary", [])
+
+
+@app.post("/api/transboundary/{mid}/status")
+def transboundary_status(mid: str, body: dict = Body(..., examples=[{"status": "approved", "by": "диспетчер"}])):
+    """Решение диспетчера по черновику: approved / rejected. Отправка соседям — по согласованному
+    каналу, вне этой системы: здесь ничего не уходит наружу автоматически."""
+    from .transboundary import digest
+
+    st = body.get("status")
+    if st not in ("approved", "rejected", "draft"):
+        raise HTTPException(400, "status: approved | rejected | draft")
+    msgs = store.get("transboundary", [])
+    for m in msgs:
+        if m["id"] == mid:
+            if digest(m) != m["sha256"]:
+                raise HTTPException(409, "контрольная сумма не совпадает: сообщение изменено")
+            m["status"] = st
+            m.setdefault("history", []).append({"status": st, "by": body.get("by", "диспетчер"), "ts": time.time()})
+            store.put("transboundary", msgs)
+            publish({"type": "transboundary", "message": m})
+            return m
+    raise HTTPException(404)
+
+
+@app.get("/api/transboundary/{mid}.json")
+def transboundary_export(mid: str):
+    m = next((m for m in store.get("transboundary", []) if m["id"] == mid), None)
+    if not m:
+        raise HTTPException(404)
+    return Response(json.dumps({k: v for k, v in m.items() if k != "history"}, ensure_ascii=False, indent=2),
+                    media_type="application/json", headers={"Content-Disposition": f'attachment; filename="caspian-alert-{mid[:8]}.json"'})
+
+
+_live = {"proc": None}
+
+
+@app.post("/api/demo/live")
+def demo_live():
+    """«Буи в эфире»: три клиента буя в реальном времени проигрывают записанную ночь
+    и шлют алерты сюда — видно, как система реагирует на вторжение по мере звука."""
+    import subprocess
+    import sys
+
+    p = _live["proc"]
+    if p is not None and p.poll() is None:
+        return {"running": True}
+    _live["proc"] = subprocess.Popen([sys.executable, "-m", "caspian_audio.cli", "buoys", "--realtime",
+                                      "--url", "http://127.0.0.1:8000/api/alerts"], env={**os.environ, "PYTHONPATH": "src"})
+    return {"running": True, "seconds": 150}

@@ -1,0 +1,100 @@
+{
+  "model": "runs/audio/model.onnx",
+  "profiles": {
+    "server": {
+      "boat_motor": 0.6,
+      "gunshot": 0.9,
+      "chainsaw": 0.9,
+      "aircraft": 0.5
+    },
+    "edge": {
+      "boat_motor": 0.4,
+      "gunshot": 0.8,
+      "chainsaw": 0.5,
+      "aircraft": 0.8
+    }
+  },
+  "unknown_sounds_alerts_per_hour": {
+    "hours": 1.5,
+    "server": {
+      "aircraft": 2.7,
+      "boat_motor": 3.3,
+      "chainsaw": 16.0,
+      "gunshot": 4.0,
+      "unknown_sound": 84.0
+    },
+    "edge": {
+      "aircraft": 1.3,
+      "boat_motor": 9.3,
+      "chainsaw": 90.7,
+      "gunshot": 23.3,
+      "unknown_sound": 84.7
+    },
+    "categories": 27
+  },
+  "test_background_alerts_per_hour": {
+    "hours": 0.224,
+    "server": {
+      "aircraft": 8.9,
+      "boat_motor": 13.4,
+      "gunshot": 4.5,
+      "unknown_sound": 67.0
+    },
+    "edge": {
+      "boat_motor": 53.6,
+      "chainsaw": 35.7,
+      "gunshot": 13.4,
+      "unknown_sound": 67.0
+    },
+    "labels": {
+      "background": 175,
+      "fireworks": 10
+    }
+  },
+  "event_recall_real": {
+    "boat_motor": {
+      "n": 97,
+      "snr10": {
+        "server": 0.268,
+        "edge": 0.392
+      },
+      "snr0": {
+        "server": 0.196,
+        "edge": 0.381
+      }
+    },
+    "gunshot": {
+      "n": 59,
+      "snr10": {
+        "server": 0.441,
+        "edge": 0.593
+      },
+      "snr0": {
+        "server": 0.322,
+        "edge": 0.542
+      }
+    },
+    "chainsaw": {
+      "n": 13,
+      "snr10": {
+        "server": 0.923,
+        "edge": 1.0
+      },
+      "snr0": {
+        "server": 0.692,
+        "edge": 1.0
+      }
+    },
+    "aircraft": {
+      "n": 14,
+      "snr10": {
+        "server": 0.071,
+        "edge": 0.0
+      },
+      "snr0": {
+        "server": 0.0,
+        "edge": 0.0
+      }
+    }
+  }
+}
