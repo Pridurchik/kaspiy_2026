@@ -90,6 +90,25 @@ def train(cfg: dict, epochs: int | None = None) -> Path:
     return out_dir / "best.pt"
 
 
+def _alert_metrics(y, p, classes, thresholds) -> dict:
+    """Метрики "как у алерта": порог из конфига, одно событие против всего остального."""
+    alert = {}
+    for cls, thr in thresholds.items():
+        k = classes.index(cls)
+        fired, true = p[:, k] >= thr, y == k
+        tp = int((fired & true).sum())
+        alert[cls] = {"threshold": thr, "precision": tp / max(int(fired.sum()), 1),
+                      "recall": tp / max(int(true.sum()), 1), "false_alarms": int((fired & ~true).sum()),
+                      "n_positive": int(true.sum())}
+    return alert
+
+
+def _print_alerts(alert: dict):
+    for cls, m in alert.items():
+        print(f"  {cls:12s} thr={m['threshold']:.2f}  precision={m['precision']:.3f}  recall={m['recall']:.3f}"
+              f"  ложных={m['false_alarms']}  (положительных: {m['n_positive']})")
+
+
 def evaluate(ckpt_path: str | Path, split: str = "test", inference: dict | None = None) -> dict:
     device = pick_device()
     model, cfg = load_checkpoint(ckpt_path, device)
@@ -107,23 +126,26 @@ def evaluate(ckpt_path: str | Path, split: str = "test", inference: dict | None 
     for c, row in zip(classes, cm):
         print(f"{c[:10]:>10s}  " + " ".join(f"{v:10d}" for v in row))
 
-    # Метрики "как у алерта": порог из конфига, одно событие против всего остального
-    alert = {}
-    for cls, thr in cfg["inference"]["thresholds"].items():
-        k = classes.index(cls)
-        fired, true = p[:, k] >= thr, y == k
-        tp = int((fired & true).sum())
-        alert[cls] = {
-            "threshold": thr,
-            "precision": tp / max(int(fired.sum()), 1),
-            "recall": tp / max(int(true.sum()), 1),
-            "false_alarms": int((fired & ~true).sum()),
-        }
-    print("Алерты при порогах из конфига:")
-    for cls, m in alert.items():
-        print(f"  {cls:12s} thr={m['threshold']:.2f}  precision={m['precision']:.3f}  recall={m['recall']:.3f}  ложных={m['false_alarms']}")
-
+    alert = _alert_metrics(y, p, classes, cfg["inference"]["thresholds"])
+    print("Алерты при порогах из конфига (все клипы):")
+    _print_alerts(alert)
     metrics = {"split": split, "report": rep, "confusion_matrix": cm.tolist(), "classes": classes, "alerts": alert}
+
+    # Главная цифра — только реальные записи: синтетику модель узнаёт по «почерку» генератора.
+    train_only = set(cfg["data"].get("train_only_sources", ["synthetic"]))
+    real = np.array([r["source"] not in train_only for r in loader.dataset.rows])
+    if real.any() and not real.all():
+        yr, pr = y[real], p[real]
+        rep_r = per_class(yr, pr.argmax(1), classes)
+        metrics["real_only"] = {"n": int(real.sum()), "report": rep_r,
+                                "confusion_matrix": confusion_matrix(yr, pr.argmax(1), len(classes)).tolist(),
+                                "alerts": _alert_metrics(yr, pr, classes, cfg["inference"]["thresholds"])}
+        print(f"Только реальные клипы ({int(real.sum())} из {len(real)}):")
+        print(format_report(rep_r, classes))
+        _print_alerts(metrics["real_only"]["alerts"])
+    elif real.all():
+        print("(синтетики в выборке нет — все метрики выше по реальным записям)")
+
     out = Path(ckpt_path).parent / f"metrics_{split}.json"
     out.write_text(json.dumps(metrics, indent=2, ensure_ascii=False))
     print(f"[eval] -> {out}")
@@ -144,7 +166,7 @@ def tune_thresholds(ckpt_path: str | Path, beta: float = 0.5) -> dict:
         k = classes.index(cls)
         true = y == k
         rows = []
-        for thr in np.arange(0.30, 0.91, 0.05):
+        for thr in np.arange(0.20, 0.96, 0.05):
             fired = p[:, k] >= thr
             tp = int((fired & true).sum())
             prec = tp / max(int(fired.sum()), 1)
@@ -156,7 +178,8 @@ def tune_thresholds(ckpt_path: str | Path, beta: float = 0.5) -> dict:
                      "precision": round(prec, 3), "recall": round(rec, 3)}
         cur = cfg["inference"]["thresholds"][cls]
         print(f"  {cls:12s} сейчас {cur:.2f} -> лучший {thr:.2f}  (precision={prec:.3f}, recall={rec:.3f})")
-    out = Path(ckpt_path).parent / "thresholds_suggested.json"
+    name = "thresholds_suggested.json" if beta == 0.5 else f"thresholds_suggested_f{beta:g}.json"
+    out = Path(ckpt_path).parent / name
     out.write_text(json.dumps(best, indent=2))
     print(f"[tune] -> {out}")
     return best

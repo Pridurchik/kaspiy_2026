@@ -20,7 +20,8 @@ class AudioClipDataset(Dataset):
         self.bg_paths = bg_paths or []
         d = cfg["data"]
         self.mix_prob, self.snr_db, self.gain_db = d["mix_prob"], d["snr_db"], d["gain_db"]
-        self.rng = np.random.default_rng()
+        # с seed из конфига, иначе обучение не воспроизводится
+        self.rng = np.random.default_rng(cfg["train"]["seed"] + (0 if train else 1))
 
     def __len__(self):
         return len(self.rows)

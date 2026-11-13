@@ -19,7 +19,10 @@ def per_class(y, pred, classes) -> dict:
         r = tp / (tp + fn) if tp + fn else 0.0
         f = 2 * p * r / (p + r) if p + r else 0.0
         out[c] = {"precision": float(p), "recall": float(r), "f1": float(f), "support": int(cm[k].sum())}
-    out["macro_f1"] = float(np.mean([out[c]["f1"] for c in classes]))
+    # как в sklearn: усредняем по классам, которые есть в разметке или в предсказаниях
+    # (класс без примеров в выборке иначе даёт F1=0 и занижает среднее)
+    present = [c for k, c in enumerate(classes) if cm[k].sum() or cm[:, k].sum()]
+    out["macro_f1"] = float(np.mean([out[c]["f1"] for c in present])) if present else 0.0
     out["accuracy"] = float(np.trace(cm) / max(cm.sum(), 1))
     return out
 

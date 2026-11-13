@@ -11,3 +11,13 @@ data/alert_clips/
 # артефакты обучения — в репо оставляем только готовую модель и метрики
 runs/audio/history.json
 runs/audio/scene_detect.json
+
+# демо сети буёв — генерируется `make array-demo`
+data/array_demo/
+runs/array_demo/
+
+# платформа: демо-данные, база, входящие клипы, разметка инспекторов
+data/demo/
+data/inspector.db
+data/inbox/
+data/feedback/

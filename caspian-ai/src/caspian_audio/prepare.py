@@ -33,9 +33,24 @@ ESC50_MAP = {
     "water_drops": "background", "pouring_water": "background", "thunderstorm": "background",
     "crickets": "background", "insects": "background", "chirping_birds": "background",
     "frog": "background", "crow": "background", "crackling_fire": "background",
+    # отдельный класс-буфер без алерта: реальный взрывной звук, похожий на выстрел
+    "fireworks": "fireworks",
     # трудные негативы
-    "fireworks": "background", "door_wood_knock": "background", "train": "background",
+    "door_wood_knock": "background", "train": "background",
 }
+# Категории ESC-50, которые есть и в UrbanSound8K (dog_bark, siren, car_horn): если обучались
+# на US8K, они уже не «незнакомые», поэтому из оценки OOD/ложных тревог их исключаем всегда.
+ESC50_US8K_OVERLAP = {"dog", "siren", "car_horn"}
+
+
+def esc50_unknown_categories(esc_root) -> dict[str, list[Path]]:
+    """Реальные звуки, которых нет в обучении: категории ESC-50 вне ESC50_MAP и вне US8K."""
+    by_cat: dict[str, list[Path]] = {}
+    with open(Path(esc_root) / "meta" / "esc50.csv", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            if r["category"] not in ESC50_MAP and r["category"] not in ESC50_US8K_OVERLAP:
+                by_cat.setdefault(r["category"], []).append(Path(esc_root) / "audio" / r["filename"])
+    return by_cat
 US8K_MAP = {
     "gun_shot": "gunshot",
     "engine_idling": "boat_motor",
@@ -183,15 +198,22 @@ def prepare(cfg: dict, sources: list[str], max_per_class: int | None = None) -> 
         if (i + 1) % 500 == 0:
             print(f"[prepare] {i + 1}/{len(items)}")
 
-    labels = np.array([r["label"] for r in rows])
-    groups = np.array([r["group"] for r in rows])
     split = np.array(["train"] * len(rows), dtype=object)
+    # Источники из train_only_sources (синтетика) целиком в train: val/test только реальные,
+    # иначе метрики меряют, как модель узнаёт собственный генератор.
+    train_only = set(dcfg.get("train_only_sources", []))
+    eval_idx = np.array([i for i, r in enumerate(rows) if r["source"] not in train_only], dtype=int)
+    if len(eval_idx) == 0:  # только синтетика (make smoke): делим её, метрики — лишь проверка пайплайна
+        print("[prepare] ВНИМАНИЕ: реальных записей нет, val/test из синтетики — метрики не отражают реальное качество")
+        eval_idx = np.arange(len(rows))
+    labels = np.array([rows[i]["label"] for i in eval_idx])
+    groups = np.array([rows[i]["group"] for i in eval_idx])
     test = _split(labels, groups, dcfg["test_fraction"], cfg["train"]["seed"])
-    split[test] = "test"
+    split[eval_idx[test]] = "test"
     rest = np.where(~test)[0]
     val_frac = dcfg["val_fraction"] / (1 - dcfg["test_fraction"])
     val = _split(labels[rest], groups[rest], val_frac, cfg["train"]["seed"] + 1)
-    split[rest[val]] = "val"
+    split[eval_idx[rest[val]]] = "val"
     for r, s in zip(rows, split):
         r["split"] = s
 

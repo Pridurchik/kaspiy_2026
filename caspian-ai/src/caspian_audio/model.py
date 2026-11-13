@@ -27,9 +27,9 @@ def mel_filterbank(sr, n_fft, n_mels, fmin, fmax) -> np.ndarray:
 
 
 class LogMel(nn.Module):
-    def __init__(self, sr, n_fft, hop_length, n_mels, fmin, fmax):
+    def __init__(self, sr, n_fft, hop_length, n_mels, fmin, fmax, eps=1e-6):
         super().__init__()
-        self.n_fft, self.hop = n_fft, hop_length
+        self.n_fft, self.hop, self.eps = n_fft, hop_length, eps
         self.n_freq = n_fft // 2 + 1
         win = torch.hann_window(n_fft, periodic=True)
         n = torch.arange(n_fft).float()
@@ -44,7 +44,7 @@ class LogMel(nn.Module):
         spec = F.conv1d(x, self.kernel, stride=self.hop)
         re, im = spec[:, : self.n_freq], spec[:, self.n_freq :]
         mel = torch.matmul(self.mel_fb, re * re + im * im)
-        return torch.log(mel + 1e-6)
+        return torch.log(mel + self.eps)
 
 
 def spec_augment(x, n_masks=2, max_f=8, max_t=20):
@@ -78,7 +78,13 @@ class AudioCNN(nn.Module):
     def __init__(self, cfg: dict):
         super().__init__()
         fe, m = cfg["features"], cfg["model"]
-        self.logmel = LogMel(cfg["sample_rate"], fe["n_fft"], fe["hop_length"], fe["n_mels"], fe["fmin"], fe["fmax"])
+        # "clip_mean": из log-mel вычитается среднее по окну, т.е. модель не зависит от
+        # абсолютной громкости (усиление = сдвиг в лог-шкале). Нормализацию по полосам
+        # не делаем: она стёрла бы стационарный спектр мотора. Старые чекпоинты без
+        # ключа работают как раньше ("none").
+        self.norm = fe.get("normalize", "none")
+        eps = 1e-10 if self.norm == "clip_mean" else 1e-6  # иначе тихий сигнал упирается в eps
+        self.logmel = LogMel(cfg["sample_rate"], fe["n_fft"], fe["hop_length"], fe["n_mels"], fe["fmin"], fe["fmax"], eps)
         self.in_bn = nn.BatchNorm1d(fe["n_mels"])  # нормализация каждой мел-полосы
         chans = m["channels"]
         self.blocks = nn.Sequential(*[
@@ -88,7 +94,10 @@ class AudioCNN(nn.Module):
         self.specaug = m.get("specaugment", True)
 
     def forward(self, wav: torch.Tensor, return_embedding: bool = False):
-        x = self.in_bn(self.logmel(wav))
+        x = self.logmel(wav)
+        if self.norm == "clip_mean":
+            x = x - x.mean(dim=(1, 2), keepdim=True)
+        x = self.in_bn(x)
         if self.training and self.specaug:
             x = spec_augment(x)
         x = self.blocks(x.unsqueeze(1)).mean(dim=2)  # (B, C, T')

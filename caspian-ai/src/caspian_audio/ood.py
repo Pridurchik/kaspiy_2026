@@ -12,14 +12,13 @@
 """
 from __future__ import annotations
 
-import csv
 from pathlib import Path
 
 import numpy as np
 
 from .audio_io import load_audio
 from .dataset import AudioClipDataset
-from .prepare import ESC50_MAP, read_manifest
+from .prepare import esc50_unknown_categories, read_manifest
 
 
 def _entropy(probs: np.ndarray) -> np.ndarray:
@@ -98,13 +97,9 @@ def evaluate_ood(predict, cfg, scorer: OODScorer, per_category: int = 8) -> dict
     emb_in, p_in, _ = _embed_rows(predict, cfg, [r for r in rows if r["split"] == "test"])
     s_in = scorer.score(emb_in, p_in)
 
-    # «незнакомые» звуки: классы ESC-50, не попавшие в обучение
-    root = Path(cfg["data"]["raw_dir"]) / "ESC-50-master"
-    by_cat: dict[str, list] = {}
-    with open(root / "meta" / "esc50.csv", encoding="utf-8") as f:
-        for r in csv.DictReader(f):
-            if r["category"] not in ESC50_MAP:
-                by_cat.setdefault(r["category"], []).append(root / "audio" / r["filename"])
+    real = np.array([r["source"] not in set(cfg["data"].get("train_only_sources", [])) for r in rows if r["split"] == "test"])
+    # «незнакомые» звуки: классы ESC-50, не попавшие в обучение (ни из ESC-50, ни из US8K)
+    by_cat = esc50_unknown_categories(Path(cfg["data"]["raw_dir"]) / "ESC-50-master")
     rng = np.random.default_rng(0)
     sr, n = cfg["sample_rate"], int(cfg["clip_seconds"] * cfg["sample_rate"])
     xs, cats = [], []
@@ -123,11 +118,15 @@ def evaluate_ood(predict, cfg, scorer: OODScorer, per_category: int = 8) -> dict
 
     res = {
         "auroc": auroc(s_out, s_in),
+        # главная цифра: знакомые = только реальные записи (синтетику модель узнаёт слишком легко)
+        "auroc_real": auroc(s_out, s_in[real]) if real.any() else None,
         "unknown_flagged": float((s_out > scorer.threshold).mean()),
         "known_flagged": float((s_in > scorer.threshold).mean()),
         "n_unknown": len(s_out), "n_known": len(s_in),
         "n_unknown_categories": len(by_cat),
     }
+    if res["auroc_real"] is not None:
+        print(f"[ood] AUROC только по реальным знакомым клипам: {res['auroc_real']:.3f}")
     print(f"[ood] AUROC={res['auroc']:.3f} | незнакомых помечено {res['unknown_flagged']:.1%} "
           f"({res['n_unknown']} клипов, {res['n_unknown_categories']} категорий) | "
           f"своих ошибочно помечено {res['known_flagged']:.1%}")

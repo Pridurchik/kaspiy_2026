@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Эко-Щит Каспия</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo">◈</span><div><b>Эко-Щит Каспия</b><small>помощник инспектора ООПТ</small></div></div>
+  <div class="eco-chips" id="ecoChips"></div>
+  <div class="spacer"></div>
+  <div class="clock" id="clock" title="Время сценария"></div>
+  <div class="live" id="live"><i></i><span>нет связи</span></div>
+  <button class="btn primary" id="replay" title="Скрыть алерты и выдать их заново, как они приходили ночью">▶ Проиграть ночь</button>
+</header>
+<main class="layout">
+  <section class="map-wrap">
+    <div id="map"></div>
+    <div class="map-legend" id="legend"></div>
+  </section>
+  <aside class="side">
+    <nav class="tabs" id="tabs">
+      <button data-tab="alerts" class="on">Тревоги <span class="count" id="alertCount">0</span></button>
+      <button data-tab="eco">Экостатус</button>
+      <button data-tab="forecast">Прогноз</button>
+      <button data-tab="buoys">Буи и данные</button>
+    </nav>
+    <div class="panel" id="panel-alerts"><div id="alertList"></div><div id="alertDetail" hidden></div></div>
+    <div class="panel" id="panel-eco" hidden></div>
+    <div class="panel" id="panel-forecast" hidden></div>
+    <div class="panel" id="panel-buoys" hidden></div>
+  </aside>
+</main>
+<div class="toast" id="toast" hidden></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

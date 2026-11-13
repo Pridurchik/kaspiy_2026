@@ -3,7 +3,9 @@ sample_rate: 16000
 clip_seconds: 2.0          # длина окна, на котором учится и работает модель
 # aircraft и chainsaw выделены из "трудных негативов": раньше они давали
 # основную массу ложных тревог по мотору, теперь это отдельные классы.
-classes: [background, boat_motor, gunshot, aircraft, chainsaw]
+# fireworks — класс-буфер без алерта: реальные взрывы/хлопки раньше были в фоне,
+# и модель учила «реальный взрывной звук = фон», что глушит настоящие выстрелы.
+classes: [background, boat_motor, gunshot, aircraft, chainsaw, fireworks]
 background_class: background
 
 features:
@@ -12,6 +14,7 @@ features:
   n_mels: 64
   fmin: 20
   fmax: 8000
+  normalize: clip_mean     # вычесть среднее log-mel по окну: модель не зависит от громкости/калибровки гидрофона
 
 model:
   channels: [32, 64, 128, 256]
@@ -24,10 +27,12 @@ data:
   manifest: data/manifest.csv
   val_fraction: 0.15
   test_fraction: 0.15
+  # Синтетика только в train: val/test (выбор эпохи, пороги, итоговые метрики) — только реальные записи
+  train_only_sources: [synthetic]
   # Аугментация: событие накладывается на фон с разным SNR (имитация расстояния до буя)
   mix_prob: 0.7
   snr_db: [-10, 20]
-  gain_db: [-6, 6]
+  gain_db: [-30, 10]       # широкий диапазон: расстояние до источника и разная чувствительность гидрофонов
 
 train:
   epochs: 40
@@ -77,3 +82,49 @@ inference:
     gunshot: 0.35
     chainsaw: 0.50
     aircraft: 0.80
+
+# ПЕЛЕНГ по сети буёв (localize.py): TDOA + GCC-PHAT, буи синхронизированы по GPS
+localization:
+  # мотор слышит гидрофон (вода), выстрел/пилу/авиацию — микрофон над водой (воздух)
+  sound_speed: {default: 1480.0, gunshot: 343.0, chainsaw: 343.0, aircraft: 343.0}
+  # полоса корреляции: кавитация винта (широкополосный шум) вместо периодичных гармоник
+  band_hz: {default: [400, 6000], gunshot: [200, 5000]}
+  impulsive_classes: [gunshot]
+  window_seconds: 0.5
+  impulse_window_seconds: 0.5
+  hop_seconds: 1.0
+  max_source_speed_ms: 20  # перебор Доплера: до 20 м/с (~40 узлов)
+  alpha_step_ms: 0.3       # шаг: расхождение задержки за окно не больше ±0.15 мс
+  tdoa_sigma_ms: 1.0       # с запасом на многолучёвость мелководья (теория даёт микросекунды)
+  sound_speed_rel_error: 0.01  # скорость звука известна с точностью ~1% (температура, солёность, ветер)
+  min_psr: 6.0             # острота пика GCC: ниже — пара буёв не используется
+  max_tdoa_rms_m: 15.0     # гиперболы не сходятся — точку отбрасываем
+  level_sigma: 0.7         # слабый априор «ближний буй громче» (лн амплитуды): выбор ветви при 3 буях
+  search_radius_m: 2500
+  grid_step_m: 25
+  accel_noise: 0.5         # м/с², модель движения лодки в фильтре Калмана
+
+# ФЬЮЖН: AIS + зоны + время -> «тёмная лодка» и балл риска (fusion.py)
+fusion:
+  origin: [45.75, 48.40]   # опорная точка участка (для плоских координат)
+  zones: configs/zones_demo.geojson
+  utc_offset_hours: 4      # Астрахань
+  night_hours: [21, 5]
+  hearing_range_m: 2000    # без пеленга: «где-то в этом радиусе от буя» (крупные суда слышно дальше)
+  ais_match_radius_m: 300  # судно AIS считается источником, если ближе (+ радиус неопределённости точки)
+  ais_max_gap_s: 180       # AIS-сообщение старше — позиция неизвестна
+  vessel_classes: [boat_motor]
+  suspect_classes: [gunshot]
+  own_fleet_mmsi: ["273000001"]   # катера инспекции: свои не тревожат
+  eta_horizon_min: 15
+  risk:
+    base: {gunshot: 40, chainsaw: 35, boat_motor: 20, unknown_sound: 10, aircraft: 0}
+    dark_vessel: 25
+    ais_identified: -15
+    ais_nearby: 0            # один буй: AIS-судно рядом есть, но источник не установлен
+    own_fleet: -100
+    fairway: -10
+    zone_default: 20
+    approaching: 10
+    night: 10
+  priority: {critical: 75, high: 55, medium: 35, low: 0}

@@ -3,16 +3,23 @@
 
   python -m caspian_audio.edge --model runs/audio/model.onnx --mic
   python -m caspian_audio.edge --model runs/audio/model.onnx --file data/scene.wav --realtime
-  ... --post http://localhost:8080/api/alerts   # куда слать JSON-алерты
+  ... --post http://localhost:8000/api/alerts   # сервер платформы (inspector.py)
+
+С алертом уходит 8-секундный клип и GPS-время его первого отсчёта: сервер перепроверяет
+клип строгими порогами (каскад), а если то же событие прислали ≥3 буя — считает пеленг.
+Время: на буе системные часы синхронизированы с GPS (gpsd + chrony, PPS). Для проигрывания
+файла как потока время начала задаётся --start-time.
 """
 from __future__ import annotations
 
 import argparse
+import base64
+import io
 import json
 import time
 import urllib.request
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
@@ -21,7 +28,7 @@ from .detect import OnlineDetector, load_ood, load_predictor, to_alerts
 
 
 def _send(alert: dict, url: str | None):
-    print(json.dumps(alert, ensure_ascii=False))
+    print(json.dumps({k: v for k, v in alert.items() if k != "clip_b64"}, ensure_ascii=False))
     if url:
         req = urllib.request.Request(url, data=json.dumps(alert).encode(), headers={"Content-Type": "application/json"})
         try:
@@ -42,6 +49,8 @@ def main():
     ap.add_argument("--post")
     ap.add_argument("--save-clips", default="data/alert_clips", help="сохранять аудио-доказательство алерта")
     ap.add_argument("--strict", action="store_true", help="не занижать пороги (без параноидального профиля буя)")
+    ap.add_argument("--cooldown", type=float, default=30.0, help="не повторять алерт того же класса чаще, с")
+    ap.add_argument("--start-time", help="ISO-время начала файла (GPS) при --file; по умолчанию сейчас")
     a = ap.parse_args()
 
     predict, cfg = load_predictor(a.model)
@@ -55,9 +64,13 @@ def main():
     sr = cfg["sample_rate"]
     win, hop = int(cfg["inference"]["window_seconds"] * sr), int(cfg["inference"]["hop_seconds"] * sr)
     buf = deque(maxlen=win * 4)  # 8 с истории для клипа-доказательства
+    t_start = datetime.fromisoformat(a.start_time) if a.start_time else datetime.now(timezone.utc)
+    total = [0]  # отсчётов с начала потока: время отсчёта = t_start + i / sr
+    last_fire: dict[str, float] = {}  # класс -> время последнего алерта (с от начала потока)
 
     def handle(chunk: np.ndarray):
         buf.extend(chunk.tolist())
+        total[0] += len(chunk)
         if len(buf) < win:
             return
         window = np.array(list(buf)[-win:], dtype=np.float32)
@@ -65,14 +78,27 @@ def main():
         bar = "  ".join(f"{c}={p:.2f}" for c, p in zip(cfg["classes"], probs))
         print(f"\r[edge] {bar}", end="", flush=True)
         for f in fired:
+            t_now = total[0] / sr
+            if t_now - last_fire.get(f["class"], -1e9) < a.cooldown:
+                continue  # тот же источник: не тратим связь на повтор
+            last_fire[f["class"]] = t_now
             print()
-            now = datetime.now(timezone.utc)
-            alert = to_alerts([{"class": f["class"], "start": 0.0, "end": 0.0, "confidence": f["confidence"]}],
+            clip_t0 = t_start + timedelta(seconds=(total[0] - len(buf)) / sr)  # GPS-время первого отсчёта клипа
+            now = t_start + timedelta(seconds=total[0] / sr)
+            win_s = cfg["inference"]["window_seconds"]
+            alert = to_alerts([{"class": f["class"], "start": -win_s, "end": 0.0, "confidence": f["confidence"]}],
                               cfg, a.sensor_id, a.lat, a.lon, now)[0]
+            data = np.array(buf, dtype=np.float32)
             if a.save_clips:
                 clip = f"{a.save_clips}/{alert['id']}.wav"
-                save_audio(clip, np.array(buf, dtype=np.float32), sr)
+                save_audio(clip, data, sr)
                 alert["evidence_audio"] = clip
+            if a.post:
+                import soundfile as sf
+                b = io.BytesIO()
+                sf.write(b, data, sr, format="WAV", subtype="PCM_16")
+                alert["clip_b64"] = base64.b64encode(b.getvalue()).decode()
+                alert["clip_start_ts"] = clip_t0.isoformat()
             _send(alert, a.post)
 
     if a.mic:
