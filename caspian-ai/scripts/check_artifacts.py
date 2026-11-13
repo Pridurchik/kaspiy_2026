@@ -42,6 +42,10 @@ def main() -> int:
     ood_thr = inf.get("ood", {}).get("threshold")
     if ood_thr is not None:
         check(0.0 <= float(ood_thr) <= 1.0, f"inference.ood.threshold={ood_thr} вне [0,1]")
+    cal = inf.get("confidence_calibration")
+    if cal is not None:
+        check(float(cal.get("a", 0.0)) > 0.0,
+              f"inference.confidence_calibration.a={cal.get('a')} должен быть > 0 (карта должна расти)")
 
     # метрики теста должны быть по тем же классам
     mt = RUN / "metrics_test.json"

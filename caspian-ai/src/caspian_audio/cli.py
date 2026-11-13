@@ -41,6 +41,9 @@ def validate_config(cfg: dict) -> None:
             raise SystemExit(f"config: inference.{key} ссылается на классы вне classes: {bad}; classes={classes}")
     if cfg.get("background_class") not in classes:
         raise SystemExit(f"config: background_class={cfg.get('background_class')!r} нет в classes")
+    cal = inf.get("confidence_calibration")
+    if cal is not None and float(cal.get("a", 0.0)) <= 0.0:
+        raise SystemExit(f"config: inference.confidence_calibration.a={cal.get('a')!r} должен быть > 0")
 
 
 def main():
@@ -72,6 +75,10 @@ def main():
     tu = sub.add_parser("tune", help="подбор порогов алертов на валидации")
     tu.add_argument("--ckpt")
     tu.add_argument("--beta", type=float, default=0.5)
+
+    cb = sub.add_parser("calibrate", help="калибровка уверенности (Platt) на валидации: ECE до/после")
+    cb.add_argument("--ckpt")
+    cb.add_argument("--split", default="test", help="контрольный сплит для отчёта ECE (по умолчанию test)")
 
     od = sub.add_parser("ood", help="обучить и оценить детектор незнакомых звуков")
     od.add_argument("--model")
@@ -147,6 +154,9 @@ def main():
     elif a.cmd == "tune":
         from .train import tune_thresholds
         tune_thresholds(ckpt, a.beta)
+    elif a.cmd == "calibrate":
+        from .train import calibrate_confidence
+        calibrate_confidence(ckpt, a.split)
     elif a.cmd == "ood":
         from .detect import load_predictor
         from .ood import evaluate_ood, fit

@@ -91,6 +91,10 @@
       "threshold": 0.95,
       "min_consecutive": 3
     },
+    "confidence_calibration": {
+      "a": 1.505,
+      "b": 0.375
+    },
     "edge_thresholds": {
       "boat_motor": 0.4,
       "gunshot": 0.8,

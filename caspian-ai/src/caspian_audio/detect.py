@@ -10,6 +10,8 @@ from typing import Callable
 
 import numpy as np
 
+from .calibrate import apply_confidence
+
 # (B, T) float32 -> (вероятности (B, C), эмбеддинги (B, D))
 PredictFn = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
 
@@ -17,6 +19,19 @@ PredictFn = Callable[[np.ndarray], tuple[np.ndarray, np.ndarray]]
 def _softmax(logits: np.ndarray) -> np.ndarray:
     e = np.exp(logits - logits.max(1, keepdims=True))
     return e / e.sum(1, keepdims=True)
+
+
+def _confidence_calibrator(inf: dict):
+    """Калибровка ПОКАЗЫВАЕМОЙ уверенности (Platt), либо None.
+
+    Сырые softmax-вероятности недоуверены (ECE 0.109). Калибровка монотонна и не
+    меняет решения/пороги — только число `confidence` в событии/алерте (см. calibrate.py).
+    """
+    cal = inf.get("confidence_calibration")
+    if not cal:
+        return None
+    a, b = float(cal.get("a", 1.0)), float(cal.get("b", 0.0))
+    return lambda p: float(apply_confidence(p, a, b))
 
 
 def load_predictor(path: str) -> tuple[PredictFn, dict]:
@@ -78,6 +93,7 @@ class StreamingDetector:
         # unknown_sound/ч. Явный порог 0.95 + min_consecutive 3 снижают это до ~2/ч (см. MODEL_AUDIT.md).
         ood_cfg = inf.get("ood", {})
         self.ood_threshold = float(ood_cfg.get("threshold", self.ood.threshold)) if self.ood is not None else None
+        self.calib = _confidence_calibrator(inf)
 
     def window_probs(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if len(x) < self.win:
@@ -107,11 +123,14 @@ class StreamingDetector:
                     j += 1
                 if j - i + 1 >= self.min_consec.get(cls, 1):
                     seg = probs[i : j + 1, k]
+                    conf = float(seg.max())
+                    if self.calib is not None:
+                        conf = self.calib(conf)
                     out.append({
                         "class": cls,
                         "start": round(float(times[i]), 2),
                         "end": round(float(times[j] + win_s), 2),
-                        "confidence": round(float(seg.max()), 3),
+                        "confidence": round(conf, 3),
                         "mean_confidence": round(float(seg.mean()), 3),
                         "peak_time": round(float(times[i + int(seg.argmax())] + win_s / 2), 2),
                     })
@@ -169,6 +188,7 @@ class OnlineDetector:
         if self.ood is not None:
             self.min_consec["unknown_sound"] = cfg["inference"].get("ood", {}).get("min_consecutive", 2)
             self.ood_threshold = float(cfg["inference"].get("ood", {}).get("threshold", self.ood.threshold))
+        self.calib = _confidence_calibrator(cfg["inference"])
         self.run_len = {c: 0 for c in list(self.thr) + ["unknown_sound"]}
         self.run_max = {c: 0.0 for c in self.run_len}
 
@@ -177,7 +197,11 @@ class OnlineDetector:
             self.run_len[cls] += 1
             self.run_max[cls] = max(self.run_max[cls], value)
             if self.run_len[cls] == self.min_consec.get(cls, 1):  # один алерт на непрерывное событие
-                fired.append({"class": cls, "confidence": round(self.run_max[cls], 3)})
+                conf = self.run_max[cls]
+                # калибруем уверенность классов-событий; unknown_sound — это OOD-скор, не вероятность
+                if self.calib is not None and cls != "unknown_sound":
+                    conf = self.calib(conf)
+                fired.append({"class": cls, "confidence": round(conf, 3)})
         else:
             self.run_len[cls], self.run_max[cls] = 0, 0.0
 

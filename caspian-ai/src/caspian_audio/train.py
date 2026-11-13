@@ -37,6 +37,23 @@ def predict_loader(model, loader, device):
     return np.concatenate(ys), np.concatenate(ps)
 
 
+@torch.no_grad()
+def logits_loader(model, loader, device):
+    """Сырые логиты (без softmax) — нужны для калибровки уверенности."""
+    model.eval()
+    ys, ls = [], []
+    for x, y in loader:
+        ls.append(model(x.to(device)).cpu().numpy())
+        ys.append(y.numpy())
+    return np.concatenate(ys), np.concatenate(ls)
+
+
+def _softmax_np(z: np.ndarray) -> np.ndarray:
+    z = z - z.max(1, keepdims=True)
+    e = np.exp(z)
+    return e / e.sum(1, keepdims=True)
+
+
 def train(cfg: dict, epochs: int | None = None) -> Path:
     tcfg = cfg["train"]
     torch.manual_seed(tcfg["seed"])
@@ -183,3 +200,33 @@ def tune_thresholds(ckpt_path: str | Path, beta: float = 0.5) -> dict:
     out.write_text(json.dumps(best, indent=2))
     print(f"[tune] -> {out}")
     return best
+
+
+def calibrate_confidence(ckpt_path: str | Path, split: str = "test") -> dict:
+    """Обучить калибровку уверенности (Platt на топ-1) на валидации, показать ECE до/после.
+
+    Пороги и argmax НЕ меняются — калибруется только показываемая уверенность
+    (см. `calibrate.py`). Подобранные (a, b) переносятся в конфиг руками:
+    `inference.confidence_calibration: {a: ..., b: ...}`.
+    """
+    from .calibrate import calibration_report, fit_confidence
+
+    device = pick_device()
+    model, cfg = load_checkpoint(ckpt_path, device)
+    splits = ("val",) if split == "val" else ("val", split)
+    loaders = _loaders(cfg, splits=splits)
+    yv, lv = logits_loader(model, loaders["val"], device)
+    a, b = fit_confidence(_softmax_np(lv), yv)
+    print(f"[calib] Platt на валидации: conf = sigmoid({a:.3f} * logit(p_max) + {b:.3f})")
+    print(f"[calib] точность/ECE/средняя уверенность (валидация: подгонка, {split}: контроль):")
+    todo = [("val", yv, lv)]
+    if split != "val":
+        yt, lt = logits_loader(model, loaders[split], device)
+        todo.append((split, yt, lt))
+    for name, y, l in todo:
+        rep = calibration_report(_softmax_np(l), y, a, b)
+        print(f"  {name:5s} n={rep['n']:4d}  acc={rep['accuracy']:.3f}  "
+              f"ECE {rep['ece_before']:.3f} -> {rep['ece_after']:.3f}  "
+              f"средняя уверенность {rep['mean_conf_before']:.3f} -> {rep['mean_conf_after']:.3f}")
+    print(f"[calib] в конфиг -> inference.confidence_calibration: {{a: {a:.3f}, b: {b:.3f}}}")
+    return {"a": a, "b": b}

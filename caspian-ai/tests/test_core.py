@@ -194,6 +194,58 @@ def test_vessel_profile_types():
     assert "крупное" in profile(boat_motor(8, 16000, rng, 12), 16000)["type_ru"]
 
 
+def test_confidence_calibration_raises_underconfident():
+    """Platt-калибровка недоуверенных вероятностей повышает уверенность и снижает ECE."""
+    from caspian_audio.calibrate import apply_confidence, calibration_report, fit_confidence
+
+    rng = np.random.default_rng(0)
+    n = 6000
+    pmax = rng.uniform(0.50, 0.85, n)              # сырая уверенность
+    p_true = np.clip(pmax + 0.15, 0.0, 0.99)       # реальная точность выше -> недоуверенность
+    correct = rng.random(n) < p_true
+    probs = np.stack([1 - pmax, pmax], axis=1)     # argmax всегда класс 1
+    labels = np.where(correct, 1, 0)
+
+    a, b = fit_confidence(probs[: n // 2], labels[: n // 2])
+    assert a > 0
+    rep = calibration_report(probs[n // 2 :], labels[n // 2 :], a, b)
+    assert rep["ece_after"] < rep["ece_before"]
+    assert rep["mean_conf_after"] > rep["mean_conf_before"]
+    # монотонность и диапазон
+    xs = np.array([0.2, 0.5, 0.7, 0.9, 0.99])
+    ys = apply_confidence(xs, a, b)
+    assert np.all(np.diff(ys) > 0) and ys.min() > 0 and ys.max() < 1
+    # вырожденный случай не падает
+    a2, b2 = fit_confidence(np.tile([0.3, 0.7], (10, 1)), np.zeros(10, dtype=int))
+    assert np.isfinite(a2) and np.isfinite(b2)
+
+
+def test_streaming_detector_calibrates_confidence():
+    """Детектор калибрует показываемую уверенность, но не решения (порог по сырым пробам)."""
+    from caspian_audio.detect import StreamingDetector
+
+    cfg = {
+        "sample_rate": 16000,
+        "classes": ["background", "boat_motor"],
+        "inference": {
+            "window_seconds": 2.0, "hop_seconds": 0.5,
+            "thresholds": {"boat_motor": 0.5}, "min_consecutive": {"boat_motor": 1},
+            "confidence_calibration": {"a": 1.505, "b": 0.375},
+        },
+    }
+
+    def predict(batch):
+        p = np.tile(np.array([0.2, 0.8], dtype=np.float32), (len(batch), 1))
+        return p, np.zeros((len(batch), 4), np.float32)
+
+    det = StreamingDetector(predict, cfg, ood=None)
+    res = det.run(np.zeros(16000 * 4, np.float32))
+    ev = [e for e in res["events"] if e["class"] == "boat_motor"]
+    assert ev, "событие должно сработать при сырой вероятности 0.8 > 0.5"
+    assert ev[0]["confidence"] > 0.8  # 0.8 сырых -> ~0.92 калиброванных
+    assert ev[0]["mean_confidence"] == 0.8  # диагностическое поле остаётся сырым
+
+
 if __name__ == "__main__":
     fails = 0
     for name, fn in list(globals().items()):
