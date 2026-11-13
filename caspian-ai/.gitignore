@@ -16,6 +16,14 @@ runs/audio/scene_detect.json
 data/array_demo/
 runs/array_demo/
 
+# smoke-прогон (`make smoke`) — изолирован от боевых данных и артефактов
+data/smoke/
+runs/smoke/
+
+# служебное
+*.egg-info/
+.pytest_cache/
+
 # платформа: демо-данные, база, входящие клипы, разметка инспекторов
 data/demo/
 data/inspector.db

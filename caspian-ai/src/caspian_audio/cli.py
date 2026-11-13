@@ -25,6 +25,24 @@ from pathlib import Path
 from .audio_io import load_audio, load_config
 
 
+def validate_config(cfg: dict) -> None:
+    """Ранняя проверка конфига: пороги алертов обязаны ссылаться на существующие классы.
+
+    Именно эта ошибка (порог для класса, которого нет в `classes`) ломает `evaluate`/`tune`
+    уже после долгого обучения — лучше упасть сразу и с понятным сообщением.
+    """
+    classes = list(cfg.get("classes", []))
+    if not classes:
+        raise SystemExit("config: пустой список classes")
+    inf = cfg.get("inference", {})
+    for key in ("thresholds", "min_consecutive", "edge_thresholds"):
+        bad = [c for c in inf.get(key, {}) if c not in classes]
+        if bad:
+            raise SystemExit(f"config: inference.{key} ссылается на классы вне classes: {bad}; classes={classes}")
+    if cfg.get("background_class") not in classes:
+        raise SystemExit(f"config: background_class={cfg.get('background_class')!r} нет в classes")
+
+
 def main():
     ap = argparse.ArgumentParser(prog="caspian_audio")
     ap.add_argument("--config", default="configs/audio.yaml")
@@ -104,6 +122,7 @@ def main():
 
     a = ap.parse_args()
     cfg = load_config(a.config)
+    validate_config(cfg)
     run_dir = Path(cfg["train"]["out_dir"])
     ckpt = getattr(a, "ckpt", None) or str(run_dir / "best.pt")
 

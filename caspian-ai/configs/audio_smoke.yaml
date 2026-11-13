@@ -1,0 +1,63 @@
+# Конфиг ТОЛЬКО для smoke-проверки пайплайна (`make smoke`).
+# Полностью изолирован: пишет в data/smoke/ и runs/smoke/, НЕ трогает боевые
+# data/manifest.csv и runs/audio/*. Синтетика (synth.py) генерирует 3 класса,
+# поэтому и модель здесь 3-классовая — это проверка конвейера, а не качество.
+sample_rate: 16000
+clip_seconds: 2.0
+classes: [background, boat_motor, gunshot]
+background_class: background
+
+features:
+  n_fft: 1024
+  hop_length: 160
+  n_mels: 64
+  fmin: 20
+  fmax: 8000
+  normalize: clip_mean
+
+model:
+  channels: [32, 64, 128, 256]
+  dropout: 0.3
+  specaugment: true
+
+data:
+  raw_dir: data/smoke/raw
+  processed_dir: data/smoke/processed
+  manifest: data/smoke/manifest.csv
+  val_fraction: 0.15
+  test_fraction: 0.15
+  train_only_sources: [synthetic]
+  mix_prob: 0.7
+  snr_db: [-10, 20]
+  gain_db: [-30, 10]
+
+train:
+  epochs: 20
+  batch_size: 32
+  lr: 0.001
+  weight_decay: 0.0001
+  patience: 20
+  seed: 42
+  num_workers: 0
+  out_dir: runs/smoke
+
+inference:
+  window_seconds: 2.0
+  hop_seconds: 0.5
+  thresholds:
+    boat_motor: 0.6
+    gunshot: 0.9
+  min_consecutive:
+    boat_motor: 3
+    gunshot: 1
+  severity:
+    boat_motor: medium
+    gunshot: high
+    unknown_sound: low
+  labels_ru:
+    boat_motor: "Шум лодочного мотора"
+    gunshot: "Выстрел"
+    unknown_sound: "Неизвестный звук — требуется проверка"
+  ood:
+    enabled: false
+    min_consecutive: 2

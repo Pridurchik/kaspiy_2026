@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+defaults:
+  run:
+    working-directory: caspian-ai
+
+jobs:
+  logic-tests:
+    name: Логика (без torch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Установка лёгких зависимостей
+        run: pip install "numpy==2.4.6" "soundfile==0.14.0" "pyyaml==6.0.3"
+      - name: Быстрые проверки ключевой логики
+        env:
+          PYTHONPATH: src
+        run: python tests/test_core.py
+
+  model-artifacts:
+    name: Артефакты модели
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Установка numpy + onnxruntime
+        run: pip install "numpy==2.4.6" "onnxruntime==1.31.1"
+      - name: Проверка согласованности model.json / метрик / ood.npz / ONNX
+        run: python scripts/check_artifacts.py

@@ -1,12 +1,19 @@
-# Обучение и сервер
-torch>=2.2
-numpy
-soundfile
-pyyaml
-fastapi
-uvicorn
-python-multipart
-onnx
-onnxruntime
-# Опционально для живого микрофона на буе:
+# Зафиксированные версии (проверено в Python 3.11.17; см. MODEL_AUDIT.md).
+# Установка: uv venv -p 3.11 .venv && uv pip install -p .venv/bin/python -r requirements.txt
+#
+# --- Обучение и сервер ---
+torch==2.15.0
+numpy==2.4.6
+soundfile==0.14.0
+pyyaml==6.0.3
+fastapi==0.162.5
+uvicorn==0.54.0
+python-multipart==0.0.33
+onnx==1.23.2
+onnxruntime==1.31.1
+
+# --- Только для тестов/CI (лёгкий набор, без torch) ---
+# numpy soundfile pyyaml (уже выше) + сам test_core.py
+
+# --- Опционально для живого микрофона на буе ---
 # sounddevice
