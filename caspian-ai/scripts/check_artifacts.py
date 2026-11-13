@@ -39,6 +39,9 @@ def main() -> int:
     for key in ("thresholds", "min_consecutive", "edge_thresholds"):
         for cls in inf.get(key, {}):
             check(cls in classes, f"inference.{key}: класс {cls!r} отсутствует в model.json classes")
+    ood_thr = inf.get("ood", {}).get("threshold")
+    if ood_thr is not None:
+        check(0.0 <= float(ood_thr) <= 1.0, f"inference.ood.threshold={ood_thr} вне [0,1]")
 
     # метрики теста должны быть по тем же классам
     mt = RUN / "metrics_test.json"

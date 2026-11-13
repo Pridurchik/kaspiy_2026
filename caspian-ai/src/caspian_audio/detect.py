@@ -73,6 +73,11 @@ class StreamingDetector:
         self.min_consec = inf["min_consecutive"]
         self.ood = ood if inf.get("ood", {}).get("enabled", True) else None
         self.ood_min_consec = inf.get("ood", {}).get("min_consecutive", 2)
+        # Порог OOD из конфига имеет приоритет над порогом из ood.npz (0.95-квантиль валидации).
+        # Квантиль валидации не отражает полевой поток: на незнакомых звуках он даёт ~84 ложных
+        # unknown_sound/ч. Явный порог 0.95 + min_consecutive 3 снижают это до ~2/ч (см. MODEL_AUDIT.md).
+        ood_cfg = inf.get("ood", {})
+        self.ood_threshold = float(ood_cfg.get("threshold", self.ood.threshold)) if self.ood is not None else None
 
     def window_probs(self, x: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         if len(x) < self.win:
@@ -123,7 +128,7 @@ class StreamingDetector:
         covered = np.zeros(len(times), dtype=bool)
         for cls, thr in self.thr.items():
             covered |= probs[:, self.classes.index(cls)] >= thr
-        active = (scores > self.ood.threshold) & ~covered
+        active = (scores > self.ood_threshold) & ~covered
         out, i = [], 0
         while i < len(active):
             if not active[i]:
@@ -138,7 +143,7 @@ class StreamingDetector:
                     "class": "unknown_sound",
                     "start": round(float(times[i]), 2),
                     "end": round(float(times[j] + win_s), 2),
-                    "confidence": round(float(np.clip((seg.max() - self.ood.threshold) / max(self.ood.threshold, 1e-6), 0, 1)), 3),
+                    "confidence": round(float(np.clip((seg.max() - self.ood_threshold) / max(self.ood_threshold, 1e-6), 0, 1)), 3),
                     "mean_confidence": round(float(seg.mean()), 3),
                     "peak_time": round(float(times[i + int(seg.argmax())] + win_s / 2), 2),
                 })
@@ -163,6 +168,7 @@ class OnlineDetector:
         self.ood = ood if cfg["inference"].get("ood", {}).get("enabled", True) else None
         if self.ood is not None:
             self.min_consec["unknown_sound"] = cfg["inference"].get("ood", {}).get("min_consecutive", 2)
+            self.ood_threshold = float(cfg["inference"].get("ood", {}).get("threshold", self.ood.threshold))
         self.run_len = {c: 0 for c in list(self.thr) + ["unknown_sound"]}
         self.run_max = {c: 0.0 for c in self.run_len}
 
@@ -186,7 +192,7 @@ class OnlineDetector:
             self._update(cls, v, thr, fired)
         if self.ood is not None and emb.shape[1] > 1:
             s = float(self.ood.score(emb, probs)[0])
-            self._update("unknown_sound", 0.0 if any_known else s, self.ood.threshold + 1e-12, fired)
+            self._update("unknown_sound", 0.0 if any_known else s, self.ood_threshold + 1e-12, fired)
         return p, fired
 
 
